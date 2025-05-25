@@ -11,10 +11,6 @@ public partial class Player : CharacterBody2D
 	// Grid system constants
 	private const int GRID_SIZE = 12;
 	private const int GRID_OFFSET = 6; // Half of grid size for centering
-	
-	// Pixel movement constants
-	private const float PIXELS_PER_SECOND = 200.0f; // How many pixels to move per second
-	private const float PIXEL_MOVE_INTERVAL = 1.0f / PIXELS_PER_SECOND; // Time between each pixel movement
 
 	private Dictionary<Vector2, int> _sprites = new()
 	{
@@ -30,20 +26,28 @@ public partial class Player : CharacterBody2D
 	private bool _isMoving = false;
 	private Vector2 _lastWallDirection = Vector2.Zero; // Track which wall we last hit
 	
-	// Pixel-by-pixel movement variables
-	private float _pixelMoveTimer = 0.0f;
-	private Vector2 _nextPixelPosition;
+	// Smooth animation variables
+	private Vector2 _animatedPosition; // The position that gets smoothly animated
+	private Vector2 _targetPosition; // Where we're moving to
+	private float _moveSpeed = 300.0f; // Speed of smooth movement
 	
-	// Raycast for collision detection
-	private RayCast2D _movementRaycast;
+	// Directional raycasts for collision detection
+	private RayCast2D _raycastUp;
+	private RayCast2D _raycastDown;
+	private RayCast2D _raycastLeft;
+	private RayCast2D _raycastRight;
 
 	public override void _Ready()
 	{
 		_animatedSprite = GetNode<AnimatedSprite2D>("AnimatedSprite2D");
 		_collisionShape = GetNode<CollisionShape2D>("CollisionShape2D");
 		
-		// Setup raycast for movement collision detection
-		SetupMovementRaycast();
+		// Initialize animated position to current position
+		_animatedPosition = GlobalPosition;
+		_targetPosition = GlobalPosition;
+		
+		// Setup directional raycasts for movement collision detection
+		SetupDirectionalRaycasts();
 		
 		// Connect animation finished signal
 		if (_animatedSprite != null)
@@ -58,32 +62,47 @@ public partial class Player : CharacterBody2D
 	{
 		if (_isMoving)
 		{
-			// Move in the current direction at high speed
-			Velocity = _currentDirection * Speed;
-			MoveAndSlide();
+			// Smoothly animate the position towards the target
+			_animatedPosition = _animatedPosition.MoveToward(_targetPosition, _moveSpeed * (float)delta);
 			
-			// Check if raycast is colliding with an object
-			if (_movementRaycast != null && _movementRaycast.IsColliding())
+			// Set the actual position to a pixel-snapped value of the animated position
+			GlobalPosition = new Vector2(
+				Mathf.Round(_animatedPosition.X),
+				Mathf.Round(_animatedPosition.Y)
+			);
+			
+			// Check if we've reached the target position
+			if (_animatedPosition.DistanceTo(_targetPosition) < 1.0f)
 			{
-				// Stop moving immediately when raycast hits something
-				_isMoving = false;
-				Velocity = Vector2.Zero;
-				_lastWallDirection = _currentDirection; // Remember which wall we hit
-				// Rotate sprite to show player against the wall
-				RotateSpriteAgainstWall(_currentDirection);
-				// Play idle animation after hitting wall
-				if (_animatedSprite != null)
+				// Snap to exact target position
+				_animatedPosition = _targetPosition;
+				GlobalPosition = _targetPosition;
+				
+				// Check if the next move in the current direction would hit a wall
+				if (IsDirectionBlocked(_currentDirection))
 				{
-					_animatedSprite.Play("idle");
+					// Stop moving when path is blocked
+					_isMoving = false;
+					_lastWallDirection = _currentDirection; // Remember which wall we hit
+					// Rotate sprite to show player against the wall
+					RotateSpriteAgainstWall(_currentDirection);
+					// Play idle animation after hitting wall
+					if (_animatedSprite != null)
+					{
+						_animatedSprite.Play("idle");
+					}
+					GD.Print($"Path blocked in direction {_currentDirection}! Stopping movement.");
 				}
-				GD.Print($"Raycast collision detected! Stopping movement.");
+				else
+				{
+					// Continue moving in the same direction
+					ContinueMoving();
+				}
 			}
 		}
-		else
-		{
-			// Not moving, keep velocity at zero
-			Velocity = Vector2.Zero;
-		}
+		
+		// Always keep velocity at zero since we're handling movement manually
+		Velocity = Vector2.Zero;
 	}
 
 	public override void _UnhandledInput(InputEvent @event)
@@ -104,17 +123,44 @@ public partial class Player : CharacterBody2D
 
 	private void StartMoving(Vector2 direction)
 	{
+		// Check if the direction is blocked before starting movement
+		if (IsDirectionBlocked(direction))
+		{
+			// Direction is blocked, only rotate the player without moving
+			_currentDirection = direction;
+			_lastWallDirection = direction; // Remember which wall we're against
+			RotateSpriteAgainstWall(direction);
+			
+			// Play idle animation since we're not moving
+			if (_animatedSprite != null)
+			{
+				_animatedSprite.Play("idle");
+			}
+			
+			GD.Print($"Direction {direction} is blocked! Only rotating player.");
+			return;
+		}
+		
+		// Direction is clear, start moving
 		_currentDirection = direction;
 		_isMoving = true;
 		
-		// Update raycast direction to match movement direction
-		UpdateRaycastDirection(direction);
+		// Set the target position for smooth movement
+		_targetPosition = GlobalPosition + direction * GRID_SIZE;
 		
 		// Rotate sprite to face movement direction
 		RotateSpriteToMovementDirection(direction);
 		
 		UpdateSprite(direction);
 		PlayMovementAnimation(direction);
+	}
+
+	private void ContinueMoving()
+	{
+		// Set the next target position for continuous movement
+		_targetPosition = GlobalPosition + _currentDirection * GRID_SIZE;
+		
+		GD.Print($"Continuing movement in direction: {_currentDirection}");
 	}
 
 	private void UpdateSprite(Vector2 direction)
@@ -277,29 +323,56 @@ public partial class Player : CharacterBody2D
 		// idle animation can loop on its own
 	}
 
-	private void SetupMovementRaycast()
+	private void SetupDirectionalRaycasts()
 	{
-		// Create and setup raycast for movement collision detection
-		_movementRaycast = new RayCast2D();
-		AddChild(_movementRaycast);
+		// Create and setup raycast for upward movement
+		_raycastUp = new RayCast2D();
+		AddChild(_raycastUp);
+		_raycastUp.Enabled = true;
+		_raycastUp.TargetPosition = Vector2.Up * 13.0f; // Longer distance for upward detection
 		
-		// Set initial raycast properties
-		_movementRaycast.Enabled = true;
-		_movementRaycast.TargetPosition = Vector2.Zero; // Will be set during movement
+		// Create and setup raycast for downward movement
+		_raycastDown = new RayCast2D();
+		AddChild(_raycastDown);
+		_raycastDown.Enabled = true;
+		_raycastDown.TargetPosition = Vector2.Down * (GRID_SIZE * 0.8f);
+		
+		// Create and setup raycast for leftward movement
+		_raycastLeft = new RayCast2D();
+		AddChild(_raycastLeft);
+		_raycastLeft.Enabled = true;
+		_raycastLeft.TargetPosition = Vector2.Left * (GRID_SIZE * 0.8f);
+		
+		// Create and setup raycast for rightward movement
+		_raycastRight = new RayCast2D();
+		AddChild(_raycastRight);
+		_raycastRight.Enabled = true;
+		_raycastRight.TargetPosition = Vector2.Right * (GRID_SIZE * 0.8f);
 	}
 
-	private void UpdateRaycastDirection(Vector2 direction)
+	private bool IsDirectionBlocked(Vector2 direction)
 	{
-		if (_movementRaycast != null)
+		RayCast2D raycast = null;
+		
+		if (direction == Vector2.Up)
+			raycast = _raycastUp;
+		else if (direction == Vector2.Down)
+			raycast = _raycastDown;
+		else if (direction == Vector2.Left)
+			raycast = _raycastLeft;
+		else if (direction == Vector2.Right)
+			raycast = _raycastRight;
+		
+		if (raycast != null)
 		{
-			// Set raycast to point in movement direction with appropriate distance
-			float rayDistance = GRID_SIZE * 0.8f; // Slightly less than grid size
-			_movementRaycast.TargetPosition = direction * rayDistance;
-			
 			// Force raycast update
-			_movementRaycast.ForceRaycastUpdate();
-			
-			GD.Print($"Raycast direction updated: {direction}, distance: {rayDistance}, colliding: {_movementRaycast.IsColliding()}");
+			raycast.ForceRaycastUpdate();
+			bool isBlocked = raycast.IsColliding();
+			GD.Print($"Direction {direction} blocked: {isBlocked}");
+			return isBlocked;
 		}
+		
+		return false;
 	}
+
 }
