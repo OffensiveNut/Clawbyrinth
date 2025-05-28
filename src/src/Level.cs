@@ -9,7 +9,7 @@ namespace Clawbyrinth
         private const int WALL = 1;
         private const int EMPTY = 0;
         
-        private int[,] levelData;
+        private int[,] levelData = null!;
         private int gridWidth;
         private int gridHeight;
         private int windowWidth;

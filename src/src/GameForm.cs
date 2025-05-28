@@ -2,15 +2,21 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
+using System.Diagnostics;
+using System.Threading;
 
 namespace Clawbyrinth
 {
     public partial class GameForm : Form
     {
-        private GameEngine gameEngine;
-        private System.Windows.Forms.Timer gameTimer;
-        private const int WINDOW_WIDTH = 800;
-        private const int WINDOW_HEIGHT = 600;
+        private GameEngine gameEngine = null!;
+        private System.Threading.Timer? precisionTimer;
+        private const int WINDOW_WIDTH = 1280;
+        private const int WINDOW_HEIGHT = 720;
+        private const int TARGET_FPS = 120;
+        private const int TIMER_INTERVAL = 1000 / TARGET_FPS; // ~8ms
+        
+        private volatile bool isUpdating = false;
 
         public GameForm()
         {
@@ -29,29 +35,56 @@ namespace Clawbyrinth
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
             
-            // Set background color
-            this.BackColor = Color.Black;
+            // Set background color to #342132
+            this.BackColor = Color.FromArgb(0x34, 0x21, 0x32);
         }
 
         private void InitializeGame()
         {
             gameEngine = new GameEngine(WINDOW_WIDTH, WINDOW_HEIGHT);
             
-            // Setup game timer for 60 FPS
-            gameTimer = new System.Windows.Forms.Timer();
-            gameTimer.Interval = 16; // ~60 FPS
-            gameTimer.Tick += GameTimer_Tick;
-            gameTimer.Start();
-            
             // Hook up events
             this.KeyDown += GameForm_KeyDown;
             this.Paint += GameForm_Paint;
+            this.Load += GameForm_Load; // Start timer when form is loaded
         }
 
-        private void GameTimer_Tick(object? sender, EventArgs e)
+        private void GameForm_Load(object? sender, EventArgs e)
         {
-            gameEngine.Update();
-            this.Invalidate(); // Trigger repaint
+            // Setup high-precision timer for 120 FPS after window handle is created
+            precisionTimer = new System.Threading.Timer(
+                callback: TimerCallback,
+                state: null,
+                dueTime: 100, // Small delay to ensure everything is ready
+                period: TIMER_INTERVAL
+            );
+        }
+
+        private void TimerCallback(object? state)
+        {
+            // Prevent overlapping updates
+            if (isUpdating) return;
+            
+            // Don't update if form isn't ready
+            if (!this.IsHandleCreated || this.IsDisposed) return;
+            
+            try
+            {
+                isUpdating = true;
+                
+                // Update game logic
+                gameEngine.Update();
+                
+                // Request redraw on UI thread
+                if (this.IsHandleCreated && !this.IsDisposed)
+                {
+                    this.BeginInvoke(() => this.Invalidate());
+                }
+            }
+            finally
+            {
+                isUpdating = false;
+            }
         }
 
         private void GameForm_KeyDown(object? sender, KeyEventArgs e)
@@ -71,8 +104,7 @@ namespace Clawbyrinth
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
-            gameTimer?.Stop();
-            gameTimer?.Dispose();
+            precisionTimer?.Dispose();
             base.OnFormClosed(e);
         }
     }

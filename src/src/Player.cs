@@ -49,13 +49,17 @@ namespace Clawbyrinth
         private AnimationType currentAnimation;
         private int currentFrame;
         private float frameTimer;
-        private Dictionary<AnimationType, Image> spriteSheets;
-        private Dictionary<AnimationType, int> framecounts;
-        private Dictionary<AnimationType, float> frameRates;
+        private Dictionary<AnimationType, Image> spriteSheets = null!;
+        private Dictionary<AnimationType, int> framecounts = null!;
+        private Dictionary<AnimationType, float> frameRates = null!;
         private bool animationFinished;
         
         // Visual
         private float scale = 1.0f;
+
+        // Public properties
+        public PointF Position => new PointF(animatedX + GRID_SIZE / 2, animatedY + GRID_SIZE / 2);
+        public bool IsMoving => isMoving;
 
         public enum PlayerState
         {
@@ -121,12 +125,8 @@ namespace Clawbyrinth
             }
         }
 
-        public void Update(Level level)
+        public void Update(Level level, float deltaTime)
         {
-            DateTime currentTime = DateTime.Now;
-            float deltaTime = (float)(currentTime - lastUpdateTime).TotalSeconds;
-            lastUpdateTime = currentTime;
-            
             animationTimer += deltaTime;
             
             // Update sprite animation
