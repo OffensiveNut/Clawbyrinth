@@ -156,5 +156,12 @@ namespace Clawbyrinth
         {
             
         }
+
+        // Dispose method to clean up resources
+        public void Dispose()
+        {
+            level?.Dispose();
+            player?.Dispose();
+        }
     }
 }

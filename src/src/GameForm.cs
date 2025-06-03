@@ -105,6 +105,7 @@ namespace Clawbyrinth
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             precisionTimer?.Dispose();
+            gameEngine?.Dispose();
             base.OnFormClosed(e);
         }
     }
