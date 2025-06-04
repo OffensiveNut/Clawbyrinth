@@ -104,8 +104,9 @@ namespace Clawbyrinth
                     direction = Direction.Right;
                     break;
                 case Keys.R:
-                    // Reset game
-                    InitializeGame();
+                    // Switch back to random default level
+                    level = new Level(windowWidth, windowHeight);
+                    player = new Player(level.GetStartPosition().X, level.GetStartPosition().Y);
                     break;
                 case Keys.Escape:
                     Application.Exit();
@@ -121,6 +122,11 @@ namespace Clawbyrinth
                 case Keys.C:
                     // Reset zoom
                     camera.SetZoom(1.0f);
+                    break;
+                case Keys.L:
+                    // Switch to Level1 predefined map
+                    level = new Levels.Level1(windowWidth, windowHeight);
+                    player = new Player(level.GetStartPosition().X, level.GetStartPosition().Y);
                     break;
             }
             

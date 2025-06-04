@@ -153,56 +153,47 @@ namespace Clawbyrinth
             bool hasWallLeft = x > 0 && levelData[x - 1, y] == WALL;
             bool hasWallRight = x < gridWidth - 1 && levelData[x + 1, y] == WALL;
             
-            // Check if we're at the edges of the level
-            bool isTopEdge = y == 0;
-            bool isBottomEdge = y == gridHeight - 1;
-            bool isLeftEdge = x == 0;
-            bool isRightEdge = x == gridWidth - 1;
+            // Check if we have empty spaces (player-accessible areas) adjacent
+            bool hasEmptyAbove = y > 0 ? levelData[x, y - 1] == EMPTY : true; // Treat edges as empty
+            bool hasEmptyBelow = y < gridHeight - 1 ? levelData[x, y + 1] == EMPTY : true;
+            bool hasEmptyLeft = x > 0 ? levelData[x - 1, y] == EMPTY : true;
+            bool hasEmptyRight = x < gridWidth - 1 ? levelData[x + 1, y] == EMPTY : true;
             
             // Use consistent randomization based on position
             Random random = new Random(x * 1000 + y);
             
-            // Determine corner cases first
-            if (isTopEdge && isLeftEdge)
+            // Corner detection: Check for exactly two adjacent empty spaces at right angles
+            if (hasEmptyAbove && hasEmptyLeft && !hasEmptyBelow && !hasEmptyRight)
                 return WallType.CornerUpperLeft;
-            if (isTopEdge && isRightEdge)
+            if (hasEmptyAbove && hasEmptyRight && !hasEmptyBelow && !hasEmptyLeft)
                 return WallType.CornerUpperRight;
-            if (isBottomEdge && isLeftEdge)
+            if (hasEmptyBelow && hasEmptyLeft && !hasEmptyAbove && !hasEmptyRight)
                 return WallType.CornerLowerLeft;
-            if (isBottomEdge && isRightEdge)
+            if (hasEmptyBelow && hasEmptyRight && !hasEmptyAbove && !hasEmptyLeft)
                 return WallType.CornerLowerRight;
             
-            // Check for interior corners
-            if (!hasWallAbove && !hasWallLeft && (hasWallBelow && hasWallRight))
-                return WallType.CornerUpperLeft;
-            if (!hasWallAbove && !hasWallRight && (hasWallBelow && hasWallLeft))
-                return WallType.CornerUpperRight;
-            if (!hasWallBelow && !hasWallLeft && (hasWallAbove && hasWallRight))
-                return WallType.CornerLowerLeft;
-            if (!hasWallBelow && !hasWallRight && (hasWallAbove && hasWallLeft))
-                return WallType.CornerLowerRight;
-            
-            // Edge walls
-            if (isTopEdge)
+            // Straight walls: Choose based on which direction has empty space
+            // Prioritize the direction with empty space (where the wall should face)
+            if (hasEmptyAbove && !hasEmptyBelow)
                 return random.Next(2) == 0 ? WallType.Upper1 : WallType.Upper2;
-            if (isBottomEdge)
+            if (hasEmptyBelow && !hasEmptyAbove)
                 return random.Next(2) == 0 ? WallType.Lower1 : WallType.Lower2;
-            if (isLeftEdge)
+            if (hasEmptyLeft && !hasEmptyRight)
                 return random.Next(2) == 0 ? WallType.Left1 : WallType.Left2;
-            if (isRightEdge)
+            if (hasEmptyRight && !hasEmptyLeft)
                 return random.Next(2) == 0 ? WallType.Right1 : WallType.Right2;
             
-            // Interior walls - determine based on open sides
-            if (!hasWallAbove) // Open to the top
+            // For walls with multiple empty sides, choose based on priority
+            if (hasEmptyAbove)
                 return random.Next(2) == 0 ? WallType.Upper1 : WallType.Upper2;
-            if (!hasWallBelow) // Open to the bottom
+            if (hasEmptyBelow)
                 return random.Next(2) == 0 ? WallType.Lower1 : WallType.Lower2;
-            if (!hasWallLeft) // Open to the left
+            if (hasEmptyLeft)
                 return random.Next(2) == 0 ? WallType.Left1 : WallType.Left2;
-            if (!hasWallRight) // Open to the right
+            if (hasEmptyRight)
                 return random.Next(2) == 0 ? WallType.Right1 : WallType.Right2;
             
-            // Default to upper wall type if completely surrounded
+            // Default fallback (should rarely be reached)
             return random.Next(2) == 0 ? WallType.Upper1 : WallType.Upper2;
         }
 
@@ -277,119 +268,65 @@ namespace Clawbyrinth
 
         private void RenderWallTiles(Graphics g, WallType wallType, int gridX, int gridY)
         {
+            // Each wall grid cell should render exactly ONE tile (12x12) on the side facing empty space
             int baseX = gridX * GRID_SIZE;
             int baseY = gridY * GRID_SIZE;
-            
-            // Check if this is an edge wall
-            bool isTopEdge = gridY == 0;
-            bool isBottomEdge = gridY == gridHeight - 1;
-            bool isLeftEdge = gridX == 0;
-            bool isRightEdge = gridX == gridWidth - 1;
-            
-            switch (wallType)
+
+            // Determine if adjacent cells are empty (player-facing sides)
+            bool openUp = (gridY > 0 && levelData[gridX, gridY - 1] == EMPTY) || gridY == 0;
+            bool openDown = (gridY < gridHeight - 1 && levelData[gridX, gridY + 1] == EMPTY) || gridY == gridHeight - 1;
+            bool openLeft = (gridX > 0 && levelData[gridX - 1, gridY] == EMPTY) || gridX == 0;
+            bool openRight = (gridX < gridWidth - 1 && levelData[gridX + 1, gridY] == EMPTY) || gridX == gridWidth - 1;
+
+            // For corners: check if this is an interior corner (wall with exactly 2 adjacent empty spaces at right angles)
+            if (IsCornerType(wallType))
             {
-                case WallType.Upper1:
-                case WallType.Upper2:
-                    if (isTopEdge)
-                    {
-                        // Top edge: only 2x1 tiles (2 tiles horizontally, 1 row)
-                        DrawWallTile(g, GetTileVariation(wallType, 0, 0), baseX, baseY + WALL_TILE_SIZE); // Bottom-left
-                        DrawWallTile(g, GetTileVariation(wallType, 1, 0), baseX + WALL_TILE_SIZE, baseY + WALL_TILE_SIZE); // Bottom-right
-                    }
-                    else
-                    {
-                        // Interior upper wall: 2 tiles on bottom + stretched tile on top
-                        DrawWallTile(g, GetTileVariation(wallType, 0, 0), baseX, baseY + WALL_TILE_SIZE); // Bottom-left
-                        DrawWallTile(g, GetTileVariation(wallType, 1, 0), baseX + WALL_TILE_SIZE, baseY + WALL_TILE_SIZE); // Bottom-right
-                        DrawWallTileStretched(g, wallType, baseX, baseY, GRID_SIZE, WALL_TILE_SIZE); // Top (back side, stretched)
-                    }
-                    break;
-                    
-                case WallType.Lower1:
-                case WallType.Lower2:
-                    if (isBottomEdge)
-                    {
-                        // Bottom edge: only 2x1 tiles (2 tiles horizontally, 1 row)
-                        DrawWallTile(g, GetTileVariation(wallType, 0, 0), baseX, baseY); // Top-left
-                        DrawWallTile(g, GetTileVariation(wallType, 1, 0), baseX + WALL_TILE_SIZE, baseY); // Top-right
-                    }
-                    else
-                    {
-                        // Interior lower wall: 2 tiles on top + stretched tile on bottom
-                        DrawWallTile(g, GetTileVariation(wallType, 0, 0), baseX, baseY); // Top-left
-                        DrawWallTile(g, GetTileVariation(wallType, 1, 0), baseX + WALL_TILE_SIZE, baseY); // Top-right
-                        DrawWallTileStretched(g, wallType, baseX, baseY + WALL_TILE_SIZE, GRID_SIZE, WALL_TILE_SIZE); // Bottom (back side, stretched)
-                    }
-                    break;
-                    
-                case WallType.Left1:
-                case WallType.Left2:
-                    if (isLeftEdge)
-                    {
-                        // Left edge: only 1x2 tiles (1 column, 2 tiles vertically)
-                        DrawWallTile(g, GetTileVariation(wallType, 0, 0), baseX + WALL_TILE_SIZE, baseY); // Right-top
-                        DrawWallTile(g, GetTileVariation(wallType, 0, 1), baseX + WALL_TILE_SIZE, baseY + WALL_TILE_SIZE); // Right-bottom
-                    }
-                    else
-                    {
-                        // Interior left wall: 2 tiles on right + stretched tile on left
-                        DrawWallTile(g, GetTileVariation(wallType, 0, 0), baseX + WALL_TILE_SIZE, baseY); // Right-top
-                        DrawWallTile(g, GetTileVariation(wallType, 0, 1), baseX + WALL_TILE_SIZE, baseY + WALL_TILE_SIZE); // Right-bottom
-                        DrawWallTileStretched(g, wallType, baseX, baseY, WALL_TILE_SIZE, GRID_SIZE); // Left (back side, stretched)
-                    }
-                    break;
-                    
-                case WallType.Right1:
-                case WallType.Right2:
-                    if (isRightEdge)
-                    {
-                        // Right edge: only 1x2 tiles (1 column, 2 tiles vertically)
-                        DrawWallTile(g, GetTileVariation(wallType, 0, 0), baseX, baseY); // Left-top
-                        DrawWallTile(g, GetTileVariation(wallType, 0, 1), baseX, baseY + WALL_TILE_SIZE); // Left-bottom
-                    }
-                    else
-                    {
-                        // Interior right wall: 2 tiles on left + stretched tile on right
-                        DrawWallTile(g, GetTileVariation(wallType, 0, 0), baseX, baseY); // Left-top
-                        DrawWallTile(g, GetTileVariation(wallType, 0, 1), baseX, baseY + WALL_TILE_SIZE); // Left-bottom
-                        DrawWallTileStretched(g, wallType, baseX + WALL_TILE_SIZE, baseY, WALL_TILE_SIZE, GRID_SIZE); // Right (back side, stretched)
-                    }
-                    break;
-                    
-                case WallType.CornerUpperLeft:
-                    // Corner upper left: only 1 tile at bottom-right position
-                    DrawWallTile(g, wallType, baseX + WALL_TILE_SIZE, baseY + WALL_TILE_SIZE);
-                    break;
-                    
-                case WallType.CornerUpperRight:
-                    // Corner upper right: only 1 tile at bottom-left position
-                    DrawWallTile(g, wallType, baseX, baseY + WALL_TILE_SIZE);
-                    break;
-                    
-                case WallType.CornerLowerLeft:
-                    // Corner lower left: only 1 tile at top-right position
-                    DrawWallTile(g, wallType, baseX + WALL_TILE_SIZE, baseY);
-                    break;
-                    
-                case WallType.CornerLowerRight:
-                    // Corner lower right: only 1 tile at top-left position
-                    DrawWallTile(g, wallType, baseX, baseY);
-                    break;
-                    
-                default:
-                    // Default: fill with 2x2 pattern using type1/type2 variations
-                    for (int tileX = 0; tileX < WALL_TILES_PER_GRID; tileX++)
-                    {
-                        for (int tileY = 0; tileY < WALL_TILES_PER_GRID; tileY++)
-                        {
-                            int screenX = baseX + tileX * WALL_TILE_SIZE;
-                            int screenY = baseY + tileY * WALL_TILE_SIZE;
-                            WallType tileType = GetTileVariation(WallType.Upper1, tileX, tileY); // Default to upper type
-                            DrawWallTile(g, tileType, screenX, screenY);
-                        }
-                    }
-                    break;
+                // Draw the corner tile exactly once at the correct position
+                DrawWallTile(g, wallType, baseX, baseY);
             }
+            else
+            {
+                // For straight walls: draw one tile on the side facing the empty space
+                // The wallType already indicates which direction this wall should face
+                switch (wallType)
+                {
+                    case WallType.Upper1:
+                    case WallType.Upper2:
+                        // Wall faces upward (empty space is above)
+                        if (openUp)
+                            DrawWallTile(g, wallType, baseX, baseY);
+                        break;
+                        
+                    case WallType.Lower1:
+                    case WallType.Lower2:
+                        // Wall faces downward (empty space is below)
+                        if (openDown)
+                            DrawWallTile(g, wallType, baseX, baseY);
+                        break;
+                        
+                    case WallType.Left1:
+                    case WallType.Left2:
+                        // Wall faces left (empty space is to the left)
+                        if (openLeft)
+                            DrawWallTile(g, wallType, baseX, baseY);
+                        break;
+                        
+                    case WallType.Right1:
+                    case WallType.Right2:
+                        // Wall faces right (empty space is to the right)
+                        if (openRight)
+                            DrawWallTile(g, wallType, baseX, baseY);
+                        break;
+                }
+            }
+        }
+
+        private bool IsCornerType(WallType wallType)
+        {
+            return wallType == WallType.CornerUpperLeft ||
+                   wallType == WallType.CornerUpperRight ||
+                   wallType == WallType.CornerLowerLeft ||
+                   wallType == WallType.CornerLowerRight;
         }
 
         private void DrawWallTile(Graphics g, WallType wallType, int screenX, int screenY)
