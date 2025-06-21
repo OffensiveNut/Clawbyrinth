@@ -28,7 +28,7 @@ namespace Clawbyrinth
         private const int GRID_SIZE = 24;
         private const float MOVE_SPEED = 1000.0f; // pixels per second
         private const int SPRITE_SIZE = 14; // Actual sprite size
-        private const int COLLISION_SIZE = 12; // Collision detection size
+        private const int COLLISION_SIZE = 6; // Collision detection size matching wall tiles
         
         // Position and movement
         private float animatedX, animatedY;
@@ -398,26 +398,31 @@ namespace Clawbyrinth
 
         private bool CanMoveInDirection(Direction direction, Level level)
         {
-            int newGridX = gridX;
-            int newGridY = gridY;
+            // Calculate the target position in pixels
+            float newX = animatedX;
+            float newY = animatedY;
             
             switch (direction)
             {
                 case Direction.Up:
-                    newGridY--;
+                    newY -= GRID_SIZE;
                     break;
                 case Direction.Down:
-                    newGridY++;
+                    newY += GRID_SIZE;
                     break;
                 case Direction.Left:
-                    newGridX--;
+                    newX -= GRID_SIZE;
                     break;
                 case Direction.Right:
-                    newGridX++;
+                    newX += GRID_SIZE;
                     break;
             }
             
-            return level.IsValidPosition(newGridX, newGridY);
+            // Check for wall collision at the new position using pixel-perfect collision
+            // Center the 6x6 collision box within the 24x24 grid cell
+            float collisionX = newX + (GRID_SIZE - COLLISION_SIZE) / 2;
+            float collisionY = newY + (GRID_SIZE - COLLISION_SIZE) / 2;
+            return !level.CheckWallCollision(collisionX, collisionY, COLLISION_SIZE, COLLISION_SIZE);
         }
 
         private void SetMovementRotation(Direction direction)
