@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using System.Diagnostics;
+using Clawbyrinth.Levels;
 
 namespace Clawbyrinth
 {
@@ -31,8 +32,8 @@ namespace Clawbyrinth
 
         private void InitializeGame()
         {
-            // Create a simple test level
-            level = new Level(windowWidth, windowHeight);
+            // Create Level1 using the new factory system
+            level = LevelFactory.CreateLevel("1", windowWidth, windowHeight);
             
             // Create player at starting position
             Point startPos = level.GetStartPosition();
