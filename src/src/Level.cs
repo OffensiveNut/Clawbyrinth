@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using Clawbyrinth.Levels;
 
 namespace Clawbyrinth
 {
@@ -22,13 +23,14 @@ namespace Clawbyrinth
 
     public class Level
     {
-        private const int GRID_SIZE = 12;
-        private const int WALL_TILE_SIZE = 12; // Each wall tile is 12x12 pixels (2x scaled from 6x6)
-        private const int WALL_TILES_PER_GRID = GRID_SIZE / WALL_TILE_SIZE; // 2 wall tiles per grid cell
-        private const int TILEMAP_TILE_SIZE = 6; // Original tile size in the tilemap
-        private const int WALL_COLLISION_SIZE = 6; // Actual collision size matching wall tiles
-        protected const int WALL = 1;
-        protected const int EMPTY = 0;
+        // Use constants from Definition
+        private const int GRID_SIZE = Definition.GRID_SIZE;
+        private const int WALL_TILE_SIZE = Definition.WALL_TILE_SIZE;
+        private const int WALL_TILES_PER_GRID = GRID_SIZE / WALL_TILE_SIZE;
+        private const int TILEMAP_TILE_SIZE = Definition.TILEMAP_TILE_SIZE;
+        private const int WALL_COLLISION_SIZE = Definition.WALL_COLLISION_SIZE;
+        protected const int WALL = Definition.WALL;
+        protected const int EMPTY = Definition.EMPTY;
         
         protected int[,] levelData = null!;
         protected WallType[,] wallTypes = null!; // Store wall types for rendering
@@ -49,11 +51,26 @@ namespace Clawbyrinth
             GenerateLevel();
         }
 
+        /// <summary>
+        /// Constructor for levels that use blueprint definitions.
+        /// </summary>
+        /// <param name="windowWidth">Window width in pixels</param>
+        /// <param name="windowHeight">Window height in pixels</param>
+        /// <param name="levelDefinition">Level definition with blueprint</param>
+        public Level(int windowWidth, int windowHeight, ILevelDefinition levelDefinition)
+        {
+            this.windowWidth = windowWidth;
+            this.windowHeight = windowHeight;
+            
+            LoadWallTilemap();
+            GenerateLevelFromBlueprint(levelDefinition);
+        }
+
         private void LoadWallTilemap()
         {
             try
             {
-                wallTilemap = Image.FromFile("Assets/Walls/new_wall_tilemap.png");
+                wallTilemap = Image.FromFile(Definition.WALL_TILEMAP_PATH);
             }
             catch (Exception ex)
             {
@@ -122,6 +139,43 @@ namespace Clawbyrinth
                 if (Math.Abs(x - gridWidth/2) > 2 || Math.Abs(y - gridHeight/2) > 2)
                 {
                     levelData[x, y] = WALL;
+                }
+            }
+            
+            // Determine wall types after all walls are placed
+            DetermineAllWallTypes();
+        }
+
+        /// <summary>
+        /// <summary>
+        /// Generates level from a blueprint definition.
+        /// Since the template now has SS and FF as 2x2 blocks, use 1:1 mapping.
+        /// </summary>
+        /// <param name="levelDefinition">Level definition containing the blueprint</param>
+        protected virtual void GenerateLevelFromBlueprint(ILevelDefinition levelDefinition)
+        {
+            string[] blueprint = levelDefinition.Blueprint;
+            
+            // Use 1:1 mapping since the template is already properly sized
+            this.gridHeight = blueprint.Length;
+            this.gridWidth = blueprint.Length > 0 ? blueprint[0].Length : 0;
+            
+            // Ensure grid dimensions don't exceed window size
+            this.gridWidth = Math.Min(this.gridWidth, windowWidth / GRID_SIZE);
+            this.gridHeight = Math.Min(this.gridHeight, windowHeight / GRID_SIZE);
+            
+            // Initialize arrays
+            levelData = new int[gridWidth, gridHeight];
+            wallTypes = new WallType[gridWidth, gridHeight];
+            
+            // Parse blueprint into level data (1:1 mapping)
+            for (int y = 0; y < gridHeight && y < blueprint.Length; y++)
+            {
+                string row = blueprint[y];
+                for (int x = 0; x < gridWidth && x < row.Length; x++)
+                {
+                    char c = row[x];
+                    levelData[x, y] = Definition.CharacterToLevelData(c);
                 }
             }
             
@@ -216,8 +270,8 @@ namespace Clawbyrinth
         }
 
         /// <summary>
-        /// Check if a rectangular area collides with any wall tiles using pixel-perfect collision.
-        /// This matches the actual 6x6 pixel wall tile dimensions to eliminate gaps.
+        /// Check if a rectangular area collides with any wall tiles using precise collision.
+        /// This directly checks the level data for wall presence.
         /// </summary>
         /// <param name="x">Left edge of the collision box in pixels</param>
         /// <param name="y">Top edge of the collision box in pixels</param>
@@ -226,26 +280,31 @@ namespace Clawbyrinth
         /// <returns>True if collision detected, false otherwise</returns>
         public bool CheckWallCollision(float x, float y, int width, int height)
         {
-            // Define the collision rectangle
+            // Create collision rectangle
             Rectangle collisionRect = new Rectangle((int)x, (int)y, width, height);
             
-            // Check all grid cells that could potentially contain wall tiles overlapping with the collision box
-            int startGridX = Math.Max(0, (int)x / GRID_SIZE);
-            int endGridX = Math.Min(gridWidth - 1, (int)(x + width - 1) / GRID_SIZE);
-            int startGridY = Math.Max(0, (int)y / GRID_SIZE);
-            int endGridY = Math.Min(gridHeight - 1, (int)(y + height - 1) / GRID_SIZE);
+            // Calculate which grid cells the collision box overlaps
+            int startGridX = Math.Max(0, Definition.PixelToGrid((int)x));
+            int endGridX = Math.Min(gridWidth - 1, Definition.PixelToGrid((int)(x + width - 1)));
+            int startGridY = Math.Max(0, Definition.PixelToGrid((int)y));
+            int endGridY = Math.Min(gridHeight - 1, Definition.PixelToGrid((int)(y + height - 1)));
             
+            // Check each grid cell for walls
             for (int gridX = startGridX; gridX <= endGridX; gridX++)
             {
                 for (int gridY = startGridY; gridY <= endGridY; gridY++)
                 {
                     if (levelData[gridX, gridY] == WALL)
                     {
-                        // Get the wall type and check if there's an actual wall tile at this position
-                        WallType wallType = wallTypes[gridX, gridY];
-                        Rectangle wallTileRect = GetWallTileCollisionRect(wallType, gridX, gridY);
+                        // Create precise collision rectangle for this wall cell
+                        Rectangle wallRect = new Rectangle(
+                            Definition.GridToPixel(gridX),
+                            Definition.GridToPixel(gridY),
+                            Definition.GRID_SIZE,
+                            Definition.GRID_SIZE
+                        );
                         
-                        if (!wallTileRect.IsEmpty && collisionRect.IntersectsWith(wallTileRect))
+                        if (collisionRect.IntersectsWith(wallRect))
                         {
                             return true;
                         }
@@ -258,7 +317,7 @@ namespace Clawbyrinth
 
         /// <summary>
         /// Get the exact collision rectangle for a wall tile based on its type and grid position.
-        /// Returns 6x6 pixel collision boxes that match the actual rendered wall tiles.
+        /// Returns collision boxes that match the actual rendered wall tiles.
         /// </summary>
         /// <param name="wallType">Type of wall tile</param>
         /// <param name="gridX">Grid X coordinate</param>
@@ -266,8 +325,8 @@ namespace Clawbyrinth
         /// <returns>Rectangle representing the collision area of the wall tile</returns>
         private Rectangle GetWallTileCollisionRect(WallType wallType, int gridX, int gridY)
         {
-            int baseX = gridX * GRID_SIZE;
-            int baseY = gridY * GRID_SIZE;
+            int baseX = Definition.GridToPixel(gridX);
+            int baseY = Definition.GridToPixel(gridY);
             
             // Determine if adjacent cells are empty (where wall tiles are rendered)
             bool openUp = (gridY > 0 && levelData[gridX, gridY - 1] == EMPTY) || gridY == 0;
@@ -278,8 +337,8 @@ namespace Clawbyrinth
             // For corners: collision box is positioned at the corner where the tile is rendered
             if (IsCornerType(wallType))
             {
-                // Corner tiles are positioned at the base of the grid cell (12x12 rendered, but 6x6 collision)
-                return new Rectangle(baseX, baseY, WALL_COLLISION_SIZE, WALL_COLLISION_SIZE);
+                // Corner tiles are positioned at the base of the grid cell
+                return new Rectangle(baseX, baseY, Definition.WALL_COLLISION_SIZE, Definition.WALL_COLLISION_SIZE);
             }
             
             // For straight walls: collision box is positioned where the wall tile is actually rendered
@@ -289,28 +348,28 @@ namespace Clawbyrinth
                 case WallType.Upper2:
                     // Wall faces upward - rendered at top of grid cell
                     if (openUp)
-                        return new Rectangle(baseX, baseY, WALL_COLLISION_SIZE, WALL_COLLISION_SIZE);
+                        return new Rectangle(baseX, baseY, Definition.WALL_COLLISION_SIZE, Definition.WALL_COLLISION_SIZE);
                     break;
                     
                 case WallType.Lower1:
                 case WallType.Lower2:
                     // Wall faces downward - rendered at bottom of grid cell
                     if (openDown)
-                        return new Rectangle(baseX, baseY + GRID_SIZE - WALL_COLLISION_SIZE, WALL_COLLISION_SIZE, WALL_COLLISION_SIZE);
+                        return new Rectangle(baseX, baseY + GRID_SIZE - Definition.WALL_COLLISION_SIZE, Definition.WALL_COLLISION_SIZE, Definition.WALL_COLLISION_SIZE);
                     break;
                     
                 case WallType.Left1:
                 case WallType.Left2:
                     // Wall faces left - rendered at left of grid cell
                     if (openLeft)
-                        return new Rectangle(baseX, baseY, WALL_COLLISION_SIZE, WALL_COLLISION_SIZE);
+                        return new Rectangle(baseX, baseY, Definition.WALL_COLLISION_SIZE, Definition.WALL_COLLISION_SIZE);
                     break;
                     
                 case WallType.Right1:
                 case WallType.Right2:
                     // Wall faces right - rendered at right of grid cell
                     if (openRight)
-                        return new Rectangle(baseX + GRID_SIZE - WALL_COLLISION_SIZE, baseY, WALL_COLLISION_SIZE, WALL_COLLISION_SIZE);
+                        return new Rectangle(baseX + GRID_SIZE - Definition.WALL_COLLISION_SIZE, baseY, Definition.WALL_COLLISION_SIZE, Definition.WALL_COLLISION_SIZE);
                     break;
             }
             
@@ -373,9 +432,9 @@ namespace Clawbyrinth
 
         private void RenderWallTiles(Graphics g, WallType wallType, int gridX, int gridY)
         {
-            // Each wall grid cell should render exactly ONE tile (12x12) on the side facing empty space
-            int baseX = gridX * GRID_SIZE;
-            int baseY = gridY * GRID_SIZE;
+            // Each wall grid cell should render exactly ONE tile on the side facing empty space
+            int baseX = Definition.GridToPixel(gridX);
+            int baseY = Definition.GridToPixel(gridY);
 
             // Determine if adjacent cells are empty (player-facing sides)
             bool openUp = (gridY > 0 && levelData[gridX, gridY - 1] == EMPTY) || gridY == 0;
@@ -439,9 +498,9 @@ namespace Clawbyrinth
             if (wallTilemap == null) return;
 
             Rectangle sourceRect = GetWallTileSourceRect(wallType);
-            Rectangle destRect = new Rectangle(screenX, screenY, WALL_TILE_SIZE, WALL_TILE_SIZE);
+            Rectangle destRect = new Rectangle(screenX, screenY, Definition.WALL_TILE_SIZE, Definition.WALL_TILE_SIZE);
             
-            // Scale the 6x6 source tile to 12x12 destination
+            // Scale the source tile to destination
             g.DrawImage(wallTilemap, destRect, sourceRect, GraphicsUnit.Pixel);
         }
 
@@ -452,14 +511,14 @@ namespace Clawbyrinth
             Rectangle sourceRect = GetWallTileSourceRect(wallType);
             Rectangle destRect = new Rectangle(screenX, screenY, width, height);
             
-            // Scale the 6x6 source tile to the specified destination size
+            // Scale the source tile to the specified destination size
             g.DrawImage(wallTilemap, destRect, sourceRect, GraphicsUnit.Pixel);
         }
 
         private Rectangle GetWallTileSourceRect(WallType wallType)
         {
             // Based on the tilemap specification:
-            // Each tile is 6x6 with 1 pixel spacing
+            // Each tile is TILEMAP_TILE_SIZE with 1 pixel spacing
             // So tile positions are: 0-5, 7-12, 14-19, 21-26, etc.
             
             int tileX = 0, tileY = 0;
@@ -517,7 +576,7 @@ namespace Clawbyrinth
                     break;
             }
             
-            return new Rectangle(tileX, tileY, TILEMAP_TILE_SIZE, TILEMAP_TILE_SIZE);
+            return new Rectangle(tileX, tileY, Definition.TILEMAP_TILE_SIZE, Definition.TILEMAP_TILE_SIZE);
         }
 
         private void RenderFallback(Graphics g)
