@@ -444,16 +444,26 @@ class MapDrawer:
         if filename:
             try:
                 # Get cropped map data that only includes content areas
-                cropped_data, crop_width, crop_height = self.canvas.get_cropped_map_data()
+                cropped_data, crop_width, crop_height, crop_min_x, crop_min_y = self.canvas.get_cropped_map_data()
+                
+                # Get cropped spike/trap layer data using the same bounds
+                cropped_spike_data = self.canvas.get_cropped_spike_data(crop_min_x, crop_min_y, crop_width, crop_height)
                 
                 with open(filename, 'w') as f:
                     # Write grid dimensions (using cropped dimensions)
                     f.write(f"# Grid dimensions: {crop_width}x{crop_height}\n")
                     f.write(f"# Symbols: 1-9 = Oriented Walls, S = Start, F = Finish, * = Asterisk, , = Accessible, . = Empty\n")
+                    f.write(f"# Trap Layer: ! = Spike 1, ? = Spike 2, . = Empty\n")
                     f.write("\n")
                     
-                    # Write the cropped grid
+                    # Write the cropped map layer
                     for row in cropped_data:
+                        f.write(row + "\n")
+                    
+                    # Write separator and trap layer
+                    f.write("\n")
+                    f.write("# Trap Layer\n")
+                    for row in cropped_spike_data:
                         f.write(row + "\n")
                     
                     # Write direction data if asterisk path exists
@@ -495,13 +505,15 @@ class MapDrawer:
                 with open(filename, 'r') as f:
                     lines = f.readlines()
                 
-                # Separate map data from direction data and coordinates
+                # Separate map data, trap data, direction data and coordinates
                 map_lines = []
+                trap_lines = []
                 direction_line = None
                 start_line = None
                 finish_line = None
                 start_entry_line = None
                 finish_exit_line = None
+                parsing_trap_layer = False
                 
                 for line in lines:
                     line = line.strip()
@@ -515,8 +527,13 @@ class MapDrawer:
                         start_entry_line = line
                     elif line.startswith('Possible Finish Exit :'):
                         finish_exit_line = line
+                    elif line == '# Trap Layer':
+                        parsing_trap_layer = True
                     elif line and not line.startswith('#'):
-                        map_lines.append(line)
+                        if parsing_trap_layer:
+                            trap_lines.append(line)
+                        else:
+                            map_lines.append(line)
                 
                 if not map_lines:
                     messagebox.showerror("Error", "No valid map data found in file")
@@ -561,6 +578,17 @@ class MapDrawer:
                                         asterisk_positions.append((col_idx, row_idx))
                                 else:
                                     self.canvas.grid[row_idx][col_idx] = '.'
+                
+                # Load trap layer data if available
+                if trap_lines:
+                    for row_idx, line in enumerate(trap_lines):
+                        if row_idx < height:
+                            for col_idx, char in enumerate(line):
+                                if col_idx < width:
+                                    if char in ['!', '?']:
+                                        self.canvas.spike_grid[row_idx][col_idx] = char
+                                    else:
+                                        self.canvas.spike_grid[row_idx][col_idx] = '.'
                 
                 # Process direction data if available
                 if direction_line and asterisk_positions:

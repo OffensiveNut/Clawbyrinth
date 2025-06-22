@@ -1423,7 +1423,18 @@ class GridCanvas(tk.Canvas):
             row = ''.join(self.grid[y][crop_min_x:crop_min_x + crop_width])
             cropped_data.append(row)
         
-        return cropped_data, crop_width, crop_height
+        return cropped_data, crop_width, crop_height, crop_min_x, crop_min_y
+
+    def get_cropped_spike_data(self, crop_min_x, crop_min_y, crop_width, crop_height):
+        """
+        Get the spike grid data cropped to the same dimensions as the map data
+        """
+        cropped_spike_data = []
+        for y in range(crop_min_y, crop_min_y + crop_height):
+            row = ''.join(self.spike_grid[y][crop_min_x:crop_min_x + crop_width])
+            cropped_spike_data.append(row)
+        
+        return cropped_spike_data
 
     def save_state(self):
         """Save current grid state and asterisk path state to history"""
