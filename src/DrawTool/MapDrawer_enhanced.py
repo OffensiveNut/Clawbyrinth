@@ -27,6 +27,13 @@ class GridCanvas(tk.Canvas):
         # Grid data
         self.grid = [['.' for _ in range(self.grid_width)] for _ in range(self.grid_height)]
         
+        # Asterisk path tracking
+        self.asterisk_path = []  # List of (x, y) coordinates for the asterisk path
+        self.asterisk_directions = {}  # Dictionary mapping (x,y) -> list of directions
+        self.asterisk_direction_sequence = []  # Ordered list of directions taken
+        self.asterisk_cursor = None  # Current cursor position (x, y) when drawing asterisk path
+        self.asterisk_drawing_active = False  # Whether user is actively drawing asterisk path
+        
         # Selection for copy/paste operations
         self.selection_start = None
         self.selection_end = None
@@ -45,6 +52,10 @@ class GridCanvas(tk.Canvas):
         self.bind("<Button-1>", self.on_mouse_press)
         self.bind("<B1-Motion>", self.on_mouse_drag)
         self.bind("<ButtonRelease-1>", self.on_mouse_release)
+        
+        # Bind keyboard events for asterisk drawing
+        self.bind("<Key>", self.on_key_press)
+        self.focus_set()  # Make canvas focusable
         
         self.update_canvas()
         
@@ -113,31 +124,210 @@ class GridCanvas(tk.Canvas):
                 
         return True
     
-    def can_place_asterisk(self, align_x, align_y):
-        """Check if asterisk can be placed at the given 2x2 location (must be in yellow area)"""
-        # Check if all 4 cells of the 2x2 block are yellow areas or empty spaces that can become yellow
+    def start_asterisk_drawing(self):
+        """
+        Start manual asterisk path drawing from Start block
+        User will use arrow keys to draw the path in 2x2 blocks
+        """
+        # Clear existing asterisk path
+        self.clear_asterisk_path()
+        
+        # Find Start block
+        start_pos = self.find_block_position('S')
+        if not start_pos:
+            if self.map_drawer:
+                self.map_drawer.status_var.set("No Start block found! Place a Start block first.")
+            return False
+        
+        # Set cursor to top-left of Start block (for 2x2 alignment)
+        start_x, start_y = start_pos
+        self.asterisk_cursor = (start_x, start_y)  # Top-left of 2x2 block
+        self.asterisk_drawing_active = True
+        
+        # Initialize path and directions
+        self.asterisk_path = [self.asterisk_cursor]
+        
+        # For direction tracking, use the top-left position of the 2x2 block
+        top_left_pos = (start_x, start_y)
+        self.asterisk_directions = {top_left_pos: []}
+        self.asterisk_direction_sequence = []
+        
+        # Mark starting 2x2 position (but don't overwrite Start block)
         for dy in range(2):
             for dx in range(2):
-                x, y = align_x + dx, align_y + dy
-                if x >= self.grid_width or y >= self.grid_height:
-                    return False
-                cell = self.grid[y][x]
-                # Can only place on yellow areas (,) or empty spaces (.) that are accessible
-                if cell not in [',', '.']:
-                    return False
-                # If it's an empty space, it should be reachable from yellow areas
-                if cell == '.':
-                    # Check if it's adjacent to yellow areas
-                    has_yellow_neighbor = False
-                    for check_dx, check_dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
-                        check_x, check_y = x + check_dx, y + check_dy
-                        if (0 <= check_x < self.grid_width and 0 <= check_y < self.grid_height and
-                            self.grid[check_y][check_x] in [',', 'S', 'F', '*']):
-                            has_yellow_neighbor = True
-                            break
-                    if not has_yellow_neighbor:
-                        return False
+                mark_x = start_x + dx
+                mark_y = start_y + dy
+                if (mark_x < self.grid_width and mark_y < self.grid_height and 
+                    self.grid[mark_y][mark_x] not in ['S', 'F']):
+                    self.grid[mark_y][mark_x] = '*'
+        
+        self.update_canvas()
+        
+        if self.map_drawer:
+            self.map_drawer.status_var.set("Asterisk drawing mode active! Use arrow keys to draw 2x2 path blocks. ESC to exit.")
+        
+        # Focus the canvas so it can receive key events
+        self.focus_set()
         return True
+    
+    def move_asterisk_cursor(self, direction):
+        """
+        Draw a continuous line of 2x2 asterisk blocks in the specified direction until hitting a wall
+        direction: 'up', 'down', 'left', 'right'
+        """
+        if not self.asterisk_drawing_active or not self.asterisk_cursor:
+            return
+        
+        direction_vectors = {
+            'up': (0, -2),      # Move by 2 cells for 2x2 blocks
+            'down': (0, 2), 
+            'left': (-2, 0),
+            'right': (2, 0)
+        }
+        
+        direction_symbols = {
+            'up': '↑',
+            'down': '↓', 
+            'left': '←',
+            'right': '→'
+        }
+        
+        if direction not in direction_vectors:
+            return
+        
+        # Starting position
+        cursor_x, cursor_y = self.asterisk_cursor
+        dx, dy = direction_vectors[direction]
+        
+        blocks_drawn = 0
+        
+        # Keep drawing in the direction until we hit a wall or boundary
+        while True:
+            # Calculate next position
+            next_x = cursor_x + dx
+            next_y = cursor_y + dy
+            
+            # Check bounds for 2x2 block
+            if (next_x < 0 or next_x + 1 >= self.grid_width or 
+                next_y < 0 or next_y + 1 >= self.grid_height):
+                break
+            
+            # Check if any part of the 2x2 block would hit a wall
+            wall_hit = False
+            finish_reached = False
+            
+            for dy_check in range(2):
+                for dx_check in range(2):
+                    check_x = next_x + dx_check
+                    check_y = next_y + dy_check
+                    check_cell = self.grid[check_y][check_x]
+                    
+                    # Only walls block movement, not existing asterisks
+                    if check_cell in ['#', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
+                        wall_hit = True
+                        break
+                    elif check_cell == 'F':
+                        finish_reached = True
+                
+                if wall_hit:
+                    break
+            
+            if wall_hit:
+                break
+            
+            # Move cursor to new position
+            cursor_x, cursor_y = next_x, next_y
+            
+            # Record the direction at the TOP-LEFT position of this 2x2 block
+            # This makes it easier to display the arrow later
+            block_top_left = (cursor_x, cursor_y)
+            if block_top_left in self.asterisk_directions:
+                self.asterisk_directions[block_top_left].append(direction)
+            else:
+                self.asterisk_directions[block_top_left] = [direction]
+            
+            # Add to direction sequence
+            self.asterisk_direction_sequence.append(direction)
+            
+            # Add to path if not already there
+            cursor_pos = (cursor_x, cursor_y)
+            if cursor_pos not in self.asterisk_path:
+                self.asterisk_path.append(cursor_pos)
+            
+            # Place the 2x2 asterisk block (unless it overlaps with Start or Finish)
+            for dy_place in range(2):
+                for dx_place in range(2):
+                    place_x = cursor_x + dx_place
+                    place_y = cursor_y + dy_place
+                    current_cell = self.grid[place_y][place_x]
+                    
+                    # Don't overwrite Start or Finish blocks
+                    if current_cell not in ['S', 'F']:
+                        self.grid[place_y][place_x] = '*'
+            
+            blocks_drawn += 1
+            
+            # Check if we reached Finish block
+            if finish_reached:
+                # Update cursor position and finish
+                self.asterisk_cursor = (cursor_x, cursor_y)
+                self.finish_asterisk_drawing()
+                return
+        
+        # Update cursor to final position
+        self.asterisk_cursor = (cursor_x, cursor_y)
+        
+        self.update_canvas()
+        
+        if self.map_drawer:
+            if blocks_drawn > 0:
+                # Show compressed direction count
+                compressed_directions = self.compress_direction_sequence(self.asterisk_direction_sequence)
+                total_compressed = len(compressed_directions)
+                self.map_drawer.status_var.set(f"Drew {blocks_drawn} blocks {direction_symbols[direction]}. Compressed moves: {total_compressed}. Use arrow keys to continue, ESC to finish.")
+            else:
+                self.map_drawer.status_var.set(f"Cannot move {direction} - blocked by wall. Use other arrow keys or ESC to finish.")
+    
+    def finish_asterisk_drawing(self):
+        """
+        Finish asterisk drawing mode
+        """
+        self.asterisk_drawing_active = False
+        self.asterisk_cursor = None
+        
+        if self.map_drawer:
+            compressed_directions = self.compress_direction_sequence(self.asterisk_direction_sequence)
+            compressed_count = len(compressed_directions)
+            self.map_drawer.status_var.set(f"Asterisk path completed! Compressed to {compressed_count} moves.")
+            
+            # Exit asterisk mode and return to wall mode
+            self.map_drawer.set_drawing_mode('wall')
+        
+        self.update_canvas()
+    
+    def clear_asterisk_path(self):
+        """Clear all asterisk blocks from the grid"""
+        for y in range(self.grid_height):
+            for x in range(self.grid_width):
+                if self.grid[y][x] == '*':
+                    self.grid[y][x] = '.'
+        
+        self.asterisk_path = []
+        self.asterisk_directions = {}
+        self.asterisk_direction_sequence = []
+        self.asterisk_cursor = None
+        self.asterisk_drawing_active = False
+    
+    def find_block_position(self, symbol):
+        """Find the top-left position of a 2x2 block (S or F)"""
+        for y in range(self.grid_height - 1):
+            for x in range(self.grid_width - 1):
+                if (self.grid[y][x] == symbol and 
+                    self.grid[y][x+1] == symbol and
+                    self.grid[y+1][x] == symbol and
+                    self.grid[y+1][x+1] == symbol):
+                    return (x, y)
+        return None
     
     def remove_existing_block(self, symbol):
         """Remove all existing blocks of the given symbol type"""
@@ -476,11 +666,8 @@ class GridCanvas(tk.Canvas):
             elif self.drawing_mode == 'finish':
                 self.place_2x2_block(grid_x, grid_y, 'F')
             elif self.drawing_mode == 'asterisk':
-                success = self.place_2x2_block(grid_x, grid_y, '*')
-                if not success:
-                    # Show visual feedback that asterisk can't be placed here
-                    if self.map_drawer:
-                        self.map_drawer.status_var.set("Asterisk can only be placed in yellow accessible areas!")
+                # Start manual asterisk path drawing
+                self.start_asterisk_drawing()
             elif self.drawing_mode == 'erase':
                 # Check if we're erasing a 2x2 block first
                 if not self.erase_2x2_block_if_needed(grid_x, grid_y):
@@ -578,6 +765,26 @@ class GridCanvas(tk.Canvas):
         self.drawing_axis = None
         self.axis_start_pos = None
         
+    def on_key_press(self, event):
+        """Handle key presses for asterisk drawing"""
+        if not self.asterisk_drawing_active:
+            return
+        
+        # Map key symbols to directions
+        key_to_direction = {
+            'Up': 'up',
+            'Down': 'down', 
+            'Left': 'left',
+            'Right': 'right'
+        }
+        
+        if event.keysym in key_to_direction:
+            direction = key_to_direction[event.keysym]
+            self.move_asterisk_cursor(direction)
+        elif event.keysym == 'Escape':
+            # Exit asterisk drawing mode
+            self.finish_asterisk_drawing()
+        
     def update_canvas(self):
         """Redraw the entire canvas"""
         self.delete("all")
@@ -636,10 +843,48 @@ class GridCanvas(tk.Canvas):
                         self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
                                        text='F', fill='white', font=('Arial', 10, 'bold'))
                     elif cell_value == '*':
-                        # Asterisk blocks (purple color to distinguish from other blocks)
+                        # Asterisk blocks (purple color) - show only direction arrows, no asterisk symbol
                         self.create_rectangle(x1, y1, x2, y2, fill='purple', outline='purple')
-                        self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
-                                       text='*', fill='white', font=('Arial', 10, 'bold'))
+                        
+                        # Only draw arrow on the top-left cell of each 2x2 asterisk block
+                        # Check if this cell is the top-left corner of a 2x2 asterisk block
+                        is_top_left_of_block = False
+                        
+                        if (x + 1 < self.grid_width and y + 1 < self.grid_height):
+                            # Check if this forms a complete 2x2 asterisk block
+                            top_left = self.grid[y][x] == '*'
+                            top_right = self.grid[y][x + 1] == '*'
+                            bottom_left = self.grid[y + 1][x] == '*'
+                            bottom_right = self.grid[y + 1][x + 1] == '*'
+                            
+                            is_top_left_of_block = top_left and top_right and bottom_left and bottom_right
+                        
+                        # Show direction arrow only on top-left cell of 2x2 block
+                        if is_top_left_of_block:
+                            # Get directions for this top-left position
+                            top_left_pos = (x, y)
+                            
+                            directions = self.asterisk_directions.get(top_left_pos, [])
+                            
+                            if directions:
+                                direction_symbols = {
+                                    'right': '→',
+                                    'down': '↓', 
+                                    'left': '←',
+                                    'up': '↑'
+                                }
+                                
+                                # Use the last direction for this block
+                                last_direction = directions[-1] if directions else None
+                                if last_direction in direction_symbols:
+                                    dir_text = direction_symbols[last_direction]
+                                    
+                                    # Calculate center point of the 2x2 block
+                                    center_x = x1 + self.cell_size  # Center between the 4 cells
+                                    center_y = y1 + self.cell_size
+                                    
+                                    self.create_text(center_x, center_y, 
+                                                   text=dir_text, fill='white', font=('Arial', 20, 'bold'))
                     elif cell_value == ',':
                         # Yellow accessible areas (flood-filled from start)
                         self.create_rectangle(x1, y1, x2, y2, fill='yellow', outline='orange')
@@ -659,6 +904,26 @@ class GridCanvas(tk.Canvas):
                 # Draw selection rectangle with dashed lines
                 self.create_rectangle(sel_x1, sel_y1, sel_x2, sel_y2, 
                                     outline='blue', width=2, stipple='gray25')
+        
+        # Draw asterisk cursor if in drawing mode
+        if self.asterisk_drawing_active and self.asterisk_cursor:
+            cursor_x, cursor_y = self.asterisk_cursor
+            
+            # Draw 2x2 cursor outline
+            for dy in range(2):
+                for dx in range(2):
+                    cell_x = cursor_x + dx
+                    cell_y = cursor_y + dy
+                    
+                    if cell_x < self.grid_width and cell_y < self.grid_height:
+                        cursor_x1 = cell_x * self.cell_size
+                        cursor_y1 = cell_y * self.cell_size
+                        cursor_x2 = cursor_x1 + self.cell_size
+                        cursor_y2 = cursor_y1 + self.cell_size
+                        
+                        # Draw cursor outline for each cell in the 2x2 block
+                        self.create_rectangle(cursor_x1, cursor_y1, cursor_x2, cursor_y2, 
+                                            outline='lime', width=3)
                     
     def get_map_data(self):
         """Get the grid data as a list of strings"""
@@ -838,6 +1103,27 @@ class GridCanvas(tk.Canvas):
         
         self.save_state()
         self.update_canvas()
+    
+    def compress_direction_sequence(self, directions):
+        """
+        Compress a sequence of directions by removing consecutive duplicates
+        
+        Args:
+            directions: List of direction strings
+            
+        Returns:
+            List of compressed directions (consecutive duplicates removed)
+        """
+        if not directions:
+            return []
+        
+        compressed = [directions[0]]
+        
+        for direction in directions[1:]:
+            if direction != compressed[-1]:
+                compressed.append(direction)
+        
+        return compressed
 
 class MapDrawer:
     def __init__(self):
@@ -895,7 +1181,7 @@ class MapDrawer:
         self.finish_btn.pack(fill=tk.X, padx=5, pady=2)
         self.finish_btn.configure(command=lambda: self.set_drawing_mode('finish'))
         
-        self.asterisk_btn = ttk.Button(mode_frame, text="Asterisk (*) - 2x2 Block (Yellow Only) [A]")
+        self.asterisk_btn = ttk.Button(mode_frame, text="Asterisk Path - Draw Lines with Arrow Keys [A]")
         self.asterisk_btn.pack(fill=tk.X, padx=5, pady=2)
         self.asterisk_btn.configure(command=lambda: self.set_drawing_mode('asterisk'))
         
@@ -987,10 +1273,17 @@ START/FINISH MODES:
 • Auto-aligns to 2x2 grid boundaries
 • S = Start, F = Finish
 
+ASTERISK MODE:
+• Click to start drawing from Start block
+• Each arrow key draws a line until hitting walls
+• Shows direction arrows on each block
+• Auto-exits when reaching Finish block
+
 SYMBOLS:
 • # = Wall
 • S = Start (2x2 block)
 • F = Finish (2x2 block)
+• * = Asterisk path with directions
 • . = Empty space
 
 The blue guide lines help you see where 2x2 blocks will be placed."""
@@ -1082,7 +1375,7 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
             'wall': ('lightblue', 'Wall mode (W) - Click and drag to draw wall lines'),
             'start': ('lightgreen', 'Start mode (S) - Click to place 2x2 start block'),
             'finish': ('lightcoral', 'Finish mode (F) - Click to place 2x2 finish block'),
-            'asterisk': ('mediumpurple', 'Asterisk mode (A) - Click to place 2x2 asterisk in yellow areas only'),
+            'asterisk': ('mediumpurple', 'Asterisk mode (A) - Each arrow key draws a line until hitting walls'),
             'erase': ('lightgray', 'Erase mode (E) - Click and drag to erase lines'),
             'select': ('lightyellow', 'Select mode (R) - Click and drag to select rectangle')
         }
@@ -1135,6 +1428,13 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
                     # Write the grid
                     for row in map_data:
                         f.write(row + "\n")
+                    
+                    # Write direction data if asterisk path exists
+                    if self.canvas.asterisk_direction_sequence:
+                        f.write("\n")
+                        # Compress the direction sequence to remove consecutive duplicates
+                        compressed_directions = self.canvas.compress_direction_sequence(self.canvas.asterisk_direction_sequence)
+                        f.write(f"direction : {','.join(compressed_directions)}\n")
                 
                 messagebox.showinfo("Success", f"Map saved to {filename}")
                 self.status_var.set(f"Map saved to {os.path.basename(filename)}")
@@ -1152,8 +1452,16 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
                 with open(filename, 'r') as f:
                     lines = f.readlines()
                 
-                # Filter out comments and empty lines
-                map_lines = [line.strip() for line in lines if line.strip() and not line.startswith('#')]
+                # Separate map data from direction data
+                map_lines = []
+                direction_line = None
+                
+                for line in lines:
+                    line = line.strip()
+                    if line.startswith('direction :'):
+                        direction_line = line
+                    elif line and not line.startswith('#'):
+                        map_lines.append(line)
                 
                 if not map_lines:
                     messagebox.showerror("Error", "No valid map data found in file")
@@ -1176,15 +1484,76 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
                 # Update canvas
                 self.canvas.set_grid_size(width, height)
                 
+                # Clear existing asterisk data
+                self.canvas.clear_asterisk_path()
+                
                 # Load the map data
+                asterisk_positions = []
                 for row_idx, line in enumerate(map_lines):
                     if row_idx < height:
                         for col_idx, char in enumerate(line):
                             if col_idx < width:
-                                if char in ['#', 'S', 'F']:
+                                if char in ['#', 'S', 'F', '*', ',', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
                                     self.canvas.grid[row_idx][col_idx] = char
+                                    if char == '*':
+                                        asterisk_positions.append((col_idx, row_idx))
                                 else:
                                     self.canvas.grid[row_idx][col_idx] = '.'
+                
+                # Process direction data if available
+                if direction_line and asterisk_positions:
+                    # Parse direction data
+                    direction_part = direction_line.split(':', 1)[1].strip()
+                    directions_list = [d.strip() for d in direction_part.split(',') if d.strip()]
+                    
+                    # Reconstruct path from direction sequence
+                    start_pos = self.canvas.find_block_position('S')
+                    if start_pos and directions_list:
+                        self.canvas.asterisk_direction_sequence = directions_list
+                        
+                        # Rebuild path by following directions (2x2 movement)
+                        start_x, start_y = start_pos
+                        current_x, current_y = start_x, start_y  # Top-left of Start block
+                        
+                        path = [(current_x, current_y)]
+                        directions_at_pos = {}
+                        
+                        # Center of first 2x2 block
+                        center_pos = (current_x + 1, current_y + 1)
+                        directions_at_pos[center_pos] = []
+                        
+                        direction_vectors = {
+                            'up': (0, -2),      # Move by 2 cells for 2x2 blocks
+                            'down': (0, 2),
+                            'left': (-2, 0),
+                            'right': (2, 0)
+                        }
+                        
+                        for direction in directions_list:
+                            if direction in direction_vectors:
+                                # Record direction at current center position
+                                center_pos = (current_x + 1, current_y + 1)
+                                if center_pos in directions_at_pos:
+                                    directions_at_pos[center_pos].append(direction)
+                                else:
+                                    directions_at_pos[center_pos] = [direction]
+                                
+                                # Move to next 2x2 block position
+                                dx, dy = direction_vectors[direction]
+                                current_x += dx
+                                current_y += dy
+                                
+                                # Add new position to path
+                                if (current_x, current_y) not in path:
+                                    path.append((current_x, current_y))
+                                
+                                # Initialize directions for new center position
+                                new_center = (current_x + 1, current_y + 1)
+                                if new_center not in directions_at_pos:
+                                    directions_at_pos[new_center] = []
+                        
+                        self.canvas.asterisk_path = path
+                        self.canvas.asterisk_directions = directions_at_pos
                 
                 self.canvas.update_canvas()
                 messagebox.showinfo("Success", f"Map loaded from {filename}")
@@ -1294,11 +1663,13 @@ START/FINISH MODES:
 • S = Start, F = Finish
 
 ASTERISK MODE:
-• Click to place 2x2 asterisk blocks
-• Can ONLY be placed in yellow accessible areas
-• Must be completely within yellow or adjacent areas
-• Perfect for marking special locations in maze
-• A = Asterisk
+• Click to start drawing from Start block
+• Each arrow key (↑↓←→) draws a continuous line of 2x2 blocks
+• Line continues until it hits a wall or boundary
+• Shows direction arrows on each block in the line
+• Auto-exits when reaching Finish block
+• ESC key to exit asterisk mode early
+• Saves sequence of all directions taken
 
 UNDO/REDO:
 • Up to 50 actions can be undone
@@ -1318,7 +1689,7 @@ SYMBOLS:
   • 5 = Center/standalone wall
 • S = Start (2x2 block) - also treated as accessible area
 • F = Finish (2x2 block) - also treated as accessible area
-• * = Asterisk (2x2 block) - can only be placed in yellow areas, also treated as accessible area
+• * = Asterisk path with direction arrows (auto-generated from Start)
 • , = Accessible area (yellow - flood-filled from Start)
 • . = Empty space
 
