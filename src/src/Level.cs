@@ -34,6 +34,7 @@ namespace Clawbyrinth
         
         protected int[,] levelData = null!;
         protected WallType[,] wallTypes = null!; // Store wall types for rendering
+        protected char[,] originalCharacters = null!; // Store original characters for oriented walls
         protected int gridWidth;
         protected int gridHeight;
         private int windowWidth;
@@ -83,6 +84,7 @@ namespace Clawbyrinth
         {
             levelData = new int[gridWidth, gridHeight];
             wallTypes = new WallType[gridWidth, gridHeight];
+            originalCharacters = new char[gridWidth, gridHeight];
             
             // Create border walls
             for (int x = 0; x < gridWidth; x++)
@@ -167,6 +169,7 @@ namespace Clawbyrinth
             // Initialize arrays
             levelData = new int[gridWidth, gridHeight];
             wallTypes = new WallType[gridWidth, gridHeight];
+            originalCharacters = new char[gridWidth, gridHeight];
             
             // Parse blueprint into level data (1:1 mapping)
             for (int y = 0; y < gridHeight && y < blueprint.Length; y++)
@@ -176,6 +179,7 @@ namespace Clawbyrinth
                 {
                     char c = row[x];
                     levelData[x, y] = Definition.CharacterToLevelData(c);
+                    originalCharacters[x, y] = c; // Store original character for oriented walls
                 }
             }
             
@@ -191,7 +195,18 @@ namespace Clawbyrinth
                 {
                     if (levelData[x, y] == WALL)
                     {
-                        wallTypes[x, y] = DetermineWallType(x, y);
+                        char originalChar = originalCharacters[x, y];
+                        
+                        // If it's an oriented wall character (1-9), use direct mapping with variants
+                        if (Definition.IsOrientedWallCharacter(originalChar))
+                        {
+                            wallTypes[x, y] = Definition.CharacterToWallType(originalChar, x, y);
+                        }
+                        else
+                        {
+                            // Fallback to old neighbor-based determination for '#' walls
+                            wallTypes[x, y] = DetermineWallType(x, y);
+                        }
                     }
                     else
                     {
@@ -432,55 +447,65 @@ namespace Clawbyrinth
 
         private void RenderWallTiles(Graphics g, WallType wallType, int gridX, int gridY)
         {
-            // Each wall grid cell should render exactly ONE tile on the side facing empty space
+            // For the new oriented wall system, always render a wall tile at every wall cell
+            // using the wall type from the template, regardless of neighbors
             int baseX = Definition.GridToPixel(gridX);
             int baseY = Definition.GridToPixel(gridY);
 
-            // Determine if adjacent cells are empty (player-facing sides)
-            bool openUp = (gridY > 0 && levelData[gridX, gridY - 1] == EMPTY) || gridY == 0;
-            bool openDown = (gridY < gridHeight - 1 && levelData[gridX, gridY + 1] == EMPTY) || gridY == gridHeight - 1;
-            bool openLeft = (gridX > 0 && levelData[gridX - 1, gridY] == EMPTY) || gridX == 0;
-            bool openRight = (gridX < gridWidth - 1 && levelData[gridX + 1, gridY] == EMPTY) || gridX == gridWidth - 1;
-
-            // For corners: check if this is an interior corner (wall with exactly 2 adjacent empty spaces at right angles)
-            if (IsCornerType(wallType))
+            // Check if this wall was placed using the oriented system (1-9)
+            char originalChar = originalCharacters[gridX, gridY];
+            if (Definition.IsOrientedWallCharacter(originalChar))
             {
-                // Draw the corner tile exactly once at the correct position
+                // For oriented walls (1-9), always render the tile exactly as specified in the template
                 DrawWallTile(g, wallType, baseX, baseY);
             }
             else
             {
-                // For straight walls: draw one tile on the side facing the empty space
-                // The wallType already indicates which direction this wall should face
-                switch (wallType)
+                // Legacy rendering logic for '#' walls - use the old "open side" logic
+                // Determine if adjacent cells are empty (player-facing sides)
+                bool openUp = (gridY > 0 && levelData[gridX, gridY - 1] == EMPTY) || gridY == 0;
+                bool openDown = (gridY < gridHeight - 1 && levelData[gridX, gridY + 1] == EMPTY) || gridY == gridHeight - 1;
+                bool openLeft = (gridX > 0 && levelData[gridX - 1, gridY] == EMPTY) || gridX == 0;
+                bool openRight = (gridX < gridWidth - 1 && levelData[gridX + 1, gridY] == EMPTY) || gridX == gridWidth - 1;
+
+                if (IsCornerType(wallType))
                 {
-                    case WallType.Upper1:
-                    case WallType.Upper2:
-                        // Wall faces upward (empty space is above)
-                        if (openUp)
-                            DrawWallTile(g, wallType, baseX, baseY);
-                        break;
-                        
-                    case WallType.Lower1:
-                    case WallType.Lower2:
-                        // Wall faces downward (empty space is below)
-                        if (openDown)
-                            DrawWallTile(g, wallType, baseX, baseY);
-                        break;
-                        
-                    case WallType.Left1:
-                    case WallType.Left2:
-                        // Wall faces left (empty space is to the left)
-                        if (openLeft)
-                            DrawWallTile(g, wallType, baseX, baseY);
-                        break;
-                        
-                    case WallType.Right1:
-                    case WallType.Right2:
-                        // Wall faces right (empty space is to the right)
-                        if (openRight)
-                            DrawWallTile(g, wallType, baseX, baseY);
-                        break;
+                    // Draw the corner tile exactly once at the correct position
+                    DrawWallTile(g, wallType, baseX, baseY);
+                }
+                else
+                {
+                    // For straight walls: draw one tile on the side facing the empty space
+                    switch (wallType)
+                    {
+                        case WallType.Upper1:
+                        case WallType.Upper2:
+                            // Wall faces upward (empty space is above)
+                            if (openUp)
+                                DrawWallTile(g, wallType, baseX, baseY);
+                            break;
+                            
+                        case WallType.Lower1:
+                        case WallType.Lower2:
+                            // Wall faces downward (empty space is below)
+                            if (openDown)
+                                DrawWallTile(g, wallType, baseX, baseY);
+                            break;
+                            
+                        case WallType.Left1:
+                        case WallType.Left2:
+                            // Wall faces left (empty space is to the left)
+                            if (openLeft)
+                                DrawWallTile(g, wallType, baseX, baseY);
+                            break;
+                            
+                        case WallType.Right1:
+                        case WallType.Right2:
+                            // Wall faces right (empty space is to the right)
+                            if (openRight)
+                                DrawWallTile(g, wallType, baseX, baseY);
+                            break;
+                    }
                 }
             }
         }
