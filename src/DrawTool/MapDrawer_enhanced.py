@@ -1089,24 +1089,20 @@ class GridCanvas(tk.Canvas):
                     
     def draw_path_marks(self):
         """Draw colored overlays for marked path directions on Start and Finish blocks"""
-        print(f"DEBUG: Drawing path marks - Start: {self.start_path_marks}, Finish: {self.finish_path_marks}")  # Debug
         
         # Draw Start path marks (green overlay)
         start_pos = self.find_block_position('S')
         if start_pos and self.start_path_marks:
-            print(f"DEBUG: Drawing start marks at {start_pos} with directions {self.start_path_marks}")  # Debug
             self.draw_path_marks_for_block(start_pos, self.start_path_marks, 'lightgreen', 'Start Entry')
         
         # Draw Finish path marks (red overlay)
         finish_pos = self.find_block_position('F')
         if finish_pos and self.finish_path_marks:
-            print(f"DEBUG: Drawing finish marks at {finish_pos} with directions {self.finish_path_marks}")  # Debug
             self.draw_path_marks_for_block(finish_pos, self.finish_path_marks, 'lightcoral', 'Finish Exit')
     
     def draw_path_marks_for_block(self, block_pos, path_marks, color, label_prefix):
         """Draw path marks extending from a specific block until hitting walls or grid edges"""
         block_x, block_y = block_pos
-        print(f"DEBUG: draw_path_marks_for_block called with block_pos={block_pos}, path_marks={path_marks}, color={color}")
         
         # Direction vectors for movement
         direction_vectors = {
@@ -1125,44 +1121,33 @@ class GridCanvas(tk.Canvas):
         }
         
         for direction in path_marks:
-            print(f"DEBUG: Processing direction: {direction}")
             if direction in direction_vectors:
                 dx, dy = direction_vectors[direction]
                 
                 # Find the first open cell in each direction from the 2x2 block
                 search_positions = []
                 if direction == 'top':
-                    # Search upward from the top edge of the 2x2 block
                     search_positions = [(block_x, block_y - 1), (block_x + 1, block_y - 1)]
                 elif direction == 'bottom':
-                    # Search downward from the bottom edge of the 2x2 block
                     search_positions = [(block_x, block_y + 2), (block_x + 1, block_y + 2)]
                 elif direction == 'left':
-                    # Search leftward from the left edge of the 2x2 block
                     search_positions = [(block_x - 1, block_y), (block_x - 1, block_y + 1)]
                 elif direction == 'right':
-                    # Search rightward from the right edge of the 2x2 block
                     search_positions = [(block_x + 2, block_y), (block_x + 2, block_y + 1)]
-                
-                print(f"DEBUG: Search positions for {direction}: {search_positions}")
                 
                 # For each search position, draw overlays for walls and then open cells
                 for search_x, search_y in search_positions:
                     current_x, current_y = search_x, search_y
                     first_open_found = False
-                    overlay_cells_drawn = 0
                     
-                    # First, draw overlays on walls (green with no arrows)
+                    # First, draw overlays on walls
                     while (0 <= current_x < self.grid_width and 
                            0 <= current_y < self.grid_height):
                         
                         cell_content = self.grid[current_y][current_x]
-                        print(f"DEBUG: Checking at ({current_x}, {current_y}): '{cell_content}'")
                         
                         # If it's a wall, draw overlay with no arrow
                         if cell_content in ['#', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-                            print(f"DEBUG: Drawing wall overlay at ({current_x}, {current_y})")
-                            
                             x1 = current_x * self.cell_size
                             y1 = current_y * self.cell_size
                             x2 = x1 + self.cell_size
@@ -1175,15 +1160,12 @@ class GridCanvas(tk.Canvas):
                                 wall_color = 'lightcoral'
                             
                             # Draw colored overlay on walls
-                            rect_id = self.create_rectangle(x1, y1, x2, y2, 
+                            self.create_rectangle(x1, y1, x2, y2, 
                                                 fill=wall_color, outline=wall_color, stipple='gray50')
-                            print(f"DEBUG: Created wall overlay {rect_id} with color {wall_color}")
-                            overlay_cells_drawn += 1
                         
                         # If we find an open cell, start the colored overlay from here
                         elif cell_content == '.':
                             first_open_found = True
-                            print(f"DEBUG: Found first open cell at ({current_x}, {current_y})")
                             break
                         
                         # Move to next position in the search direction
@@ -1192,7 +1174,6 @@ class GridCanvas(tk.Canvas):
                     
                     # If we found an open cell, draw the colored overlay extending from there
                     if first_open_found:
-                        overlay_start_x, overlay_start_y = current_x, current_y
                         first_open_cell = True
                         
                         # Continue extending the colored overlay until we hit a wall or boundary
@@ -1200,17 +1181,14 @@ class GridCanvas(tk.Canvas):
                                0 <= current_y < self.grid_height and
                                self.grid[current_y][current_x] == '.'):
                             
-                            print(f"DEBUG: Drawing colored overlay at ({current_x}, {current_y})")
-                            
                             x1 = current_x * self.cell_size
                             y1 = current_y * self.cell_size
                             x2 = x1 + self.cell_size
                             y2 = y1 + self.cell_size
                             
                             # Draw colored overlay for open cells
-                            rect_id = self.create_rectangle(x1, y1, x2, y2, 
+                            self.create_rectangle(x1, y1, x2, y2, 
                                                 fill=color, outline=color, stipple='gray50')
-                            print(f"DEBUG: Created colored rectangle {rect_id} at ({x1}, {y1}) to ({x2}, {y2})")
                             
                             # Add direction arrow on the first open cell of the overlay
                             if first_open_cell:
@@ -1228,21 +1206,13 @@ class GridCanvas(tk.Canvas):
                                     # For finish path, keep original direction (pointing away)
                                     symbol = direction_symbols[direction]
                                 
-                                text_id = self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
+                                self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
                                                text=symbol, fill='black', font=('Arial', 12, 'bold'))
-                                print(f"DEBUG: Created text {text_id} with symbol '{symbol}'")
                                 first_open_cell = False
                             
                             # Move to next position in the direction
                             current_x += dx
                             current_y += dy
-                        
-                        print(f"DEBUG: Overlay ended at ({current_x}, {current_y})")
-                    else:
-                        print(f"DEBUG: No open cell found in direction {direction} from ({search_x}, {search_y})")
-                        
-                    if overlay_cells_drawn > 0:
-                        print(f"DEBUG: Drew {overlay_cells_drawn} wall overlay cells")
                     
     def get_map_data(self):
         """Get the grid data as a list of strings"""
@@ -2314,7 +2284,16 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
     
     def paste_selection(self):
         """Paste from clipboard to current selection"""
-        self.canvas.paste_selection()
+        # If there's a current selection, use its top-left corner as paste position
+        bounds = self.canvas.get_selection_bounds()
+        if bounds:
+            min_x, min_y, max_x, max_y = bounds
+            paste_x, paste_y = min_x, min_y
+        else:
+            # If no selection, paste at (0, 0)
+            paste_x, paste_y = 0, 0
+        
+        self.canvas.paste_selection(paste_x, paste_y)
         self.update_selection_buttons()
     
     def delete_selection(self):
