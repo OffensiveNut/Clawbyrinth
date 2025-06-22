@@ -3,6 +3,46 @@ from tkinter import ttk, filedialog, messagebox
 import os
 import math
 
+class ToolTip:
+    """Create a tooltip for a given widget"""
+    def __init__(self, widget, text='widget info'):
+        self.widget = widget
+        self.text = text
+        self.tipwindow = None
+        self.id = None
+        self.x = self.y = 0
+        self._bind()
+    
+    def _bind(self):
+        self.widget.bind('<Enter>', self._on_enter)
+        self.widget.bind('<Leave>', self._on_leave)
+    
+    def _on_enter(self, event=None):
+        self._show_tip()
+    
+    def _on_leave(self, event=None):
+        self._hide_tip()
+    
+    def _show_tip(self):
+        if self.tipwindow or not self.text:
+            return
+        x, y, cx, cy = self.widget.bbox("insert")
+        x = x + self.widget.winfo_rootx() + 25
+        y = y + cy + self.widget.winfo_rooty() + 25
+        self.tipwindow = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(1)
+        tw.wm_geometry("+%d+%d" % (x, y))
+        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
+                      background="#ffffe0", relief=tk.SOLID, borderwidth=1,
+                      font=("tahoma", "8", "normal"))
+        label.pack(ipadx=1)
+    
+    def _hide_tip(self):
+        tw = self.tipwindow
+        self.tipwindow = None
+        if tw:
+            tw.destroy()
+
 class GridCanvas(tk.Canvas):
     def __init__(self, parent, map_drawer=None, **kwargs):
         super().__init__(parent, **kwargs)
@@ -11,6 +51,10 @@ class GridCanvas(tk.Canvas):
         
         # Grid settings (must be even numbers)
         self.cell_size = 20
+        self.base_cell_size = 20  # Base cell size for zoom calculations
+        self.zoom_level = 1.0  # Current zoom level (1.0 = 100%)
+        self.zoom_levels = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0]  # Discrete zoom levels like Aseprite
+        self.zoom_index = 3  # Start at 100% (index 3 in zoom_levels)
         self.grid_width = 40  # Must be even
         self.grid_height = 30  # Must be even
         
@@ -66,11 +110,53 @@ class GridCanvas(tk.Canvas):
         
     def set_grid_size(self, width, height):
         # Ensure grid sizes are even (multiples of 2)
-        self.grid_width = width if width % 2 == 0 else width + 1
-        self.grid_height = height if height % 2 == 0 else height + 1
+        new_width = width if width % 2 == 0 else width + 1
+        new_height = height if height % 2 == 0 else height + 1
         
-        # Recreate grid data
-        self.grid = [['.' for _ in range(self.grid_width)] for _ in range(self.grid_height)]
+        # Store current grid content
+        old_grid = self.grid
+        old_width = self.grid_width
+        old_height = self.grid_height
+        
+        # Update dimensions
+        self.grid_width = new_width
+        self.grid_height = new_height
+        
+        # Create new grid with proper size
+        self.grid = [['.' for _ in range(new_width)] for _ in range(new_height)]
+        
+        # Copy existing content (preserve top-left, remove from right/bottom if shrinking)
+        copy_width = min(old_width, new_width)
+        copy_height = min(old_height, new_height)
+        
+        for y in range(copy_height):
+            for x in range(copy_width):
+                self.grid[y][x] = old_grid[y][x]
+        
+        # Preserve asterisk path state and other states that reference grid positions
+        # Filter out asterisk positions that are now outside the grid
+        if hasattr(self, 'asterisk_path'):
+            self.asterisk_path = [(x, y) for x, y in self.asterisk_path 
+                                 if x < new_width and y < new_height]
+        
+        if hasattr(self, 'asterisk_directions'):
+            # Remove directions for positions outside the new grid
+            valid_directions = {}
+            for pos, directions in self.asterisk_directions.items():
+                x, y = pos
+                if x < new_width and y < new_height:
+                    valid_directions[pos] = directions
+            self.asterisk_directions = valid_directions
+        
+        # Update asterisk cursor if it's outside the new bounds
+        if hasattr(self, 'asterisk_cursor') and self.asterisk_cursor:
+            cursor_x, cursor_y = self.asterisk_cursor
+            if cursor_x + 1 >= new_width or cursor_y + 1 >= new_height:
+                self.asterisk_cursor = None
+                self.asterisk_drawing_active = False
+        
+        # Save state and update canvas
+        self.save_state()
         self.update_canvas()
         
     def set_drawing_mode(self, mode):
@@ -943,7 +1029,51 @@ class GridCanvas(tk.Canvas):
         elif event.keysym == 'Escape':
             # Exit asterisk drawing mode
             self.finish_asterisk_drawing()
+    
+    def set_zoom(self, zoom_level):
+        """Set the zoom level and update the canvas"""
+        # Clamp zoom level between 0.25x and 4x
+        self.zoom_level = max(0.25, min(4.0, zoom_level))
         
+        # Update cell size based on zoom - ensure it's always even for proper 2x2 guide grid alignment
+        raw_cell_size = self.base_cell_size * self.zoom_level
+        self.cell_size = int(raw_cell_size)
+        # Ensure cell_size is even for proper 2x2 guide grid alignment
+        if self.cell_size % 2 != 0:
+            self.cell_size += 1
+        
+        # Update canvas size and scroll region
+        canvas_width = self.grid_width * self.cell_size
+        canvas_height = self.grid_height * self.cell_size
+        
+        self.configure(scrollregion=(0, 0, canvas_width, canvas_height))
+        
+        # Redraw the canvas
+        self.update_canvas()
+        
+        # Update zoom display in parent
+        if self.map_drawer:
+            zoom_percent = int(self.zoom_level * 100)
+            self.map_drawer.zoom_var.set(f"{zoom_percent}%")
+    
+    def zoom_in(self):
+        """Increase zoom level"""
+        new_zoom = self.zoom_level * 1.25
+        self.set_zoom(new_zoom)
+    
+    def zoom_out(self):
+        """Decrease zoom level"""
+        new_zoom = self.zoom_level / 1.25
+        self.set_zoom(new_zoom)
+    
+    def zoom_reset(self):
+        """Reset zoom to 100%"""
+        self.set_zoom(1.0)
+    
+    def get_zoom_level(self):
+        """Get current zoom level"""
+        return self.zoom_level
+    
     def update_canvas(self):
         """Redraw the entire canvas"""
         self.delete("all")
@@ -963,18 +1093,6 @@ class GridCanvas(tk.Canvas):
         for i in range(self.grid_height + 1):
             y = i * self.cell_size
             self.create_line(0, y, canvas_width, y, fill='lightgray', width=1)
-            
-        # Draw 2x2 guide grid if enabled
-        if self.show_guide_grid:
-            # Vertical guide lines (every 2 cells)
-            for i in range(0, self.grid_width + 1, 2):
-                x = i * self.cell_size
-                self.create_line(x, 0, x, canvas_height, fill='blue', width=2)
-                
-            # Horizontal guide lines (every 2 cells)
-            for i in range(0, self.grid_height + 1, 2):
-                y = i * self.cell_size
-                self.create_line(0, y, canvas_width, y, fill='blue', width=2)
         
         # Draw grid contents
         for y in range(self.grid_height):
@@ -1086,6 +1204,25 @@ class GridCanvas(tk.Canvas):
         
         # Draw path marks for Start and Finish blocks
         self.draw_path_marks()
+        
+        # Draw 2x2 guide grid on top if enabled (always visible, drawn last to be on top)
+        if self.show_guide_grid:
+            # Calculate canvas size for guide lines
+            canvas_width = self.grid_width * self.cell_size
+            canvas_height = self.grid_height * self.cell_size
+            
+            # Vertical guide lines (every 2 cells) - use thicker lines and ensure they're on top
+            for i in range(0, self.grid_width + 1, 2):
+                x = i * self.cell_size
+                self.create_line(x, 0, x, canvas_height, fill='blue', width=3, tags='guide_grid')
+                
+            # Horizontal guide lines (every 2 cells) - use thicker lines and ensure they're on top
+            for i in range(0, self.grid_height + 1, 2):
+                y = i * self.cell_size
+                self.create_line(0, y, canvas_width, y, fill='blue', width=3, tags='guide_grid')
+            
+            # Ensure guide grid is always on top
+            self.tag_raise('guide_grid')
                     
     def draw_path_marks(self):
         """Draw colored overlays for marked path directions on Start and Finish blocks"""
@@ -1595,6 +1732,123 @@ class GridCanvas(tk.Canvas):
                 compressed.append(direction)
         
         return compressed
+    
+    def set_zoom(self, zoom_level, mouse_x=None, mouse_y=None):
+        """Set the zoom level and update the canvas, optionally centering on mouse position"""
+        # Find the closest discrete zoom level
+        closest_index = min(range(len(self.zoom_levels)), 
+                           key=lambda i: abs(self.zoom_levels[i] - zoom_level))
+        
+        old_zoom = self.zoom_level
+        self.zoom_index = closest_index
+        self.zoom_level = self.zoom_levels[self.zoom_index]
+        
+        # Get current view center if no mouse position provided
+        if mouse_x is None or mouse_y is None:
+            # Get current scroll position and visible area
+            canvas_width = self.winfo_width()
+            canvas_height = self.winfo_height()
+            scroll_x = self.canvasx(canvas_width / 2)
+            scroll_y = self.canvasy(canvas_height / 2)
+        else:
+            # Convert mouse position to canvas coordinates
+            scroll_x = self.canvasx(mouse_x)
+            scroll_y = self.canvasy(mouse_y)
+        
+        # Convert canvas coordinates to grid coordinates
+        old_cell_size = int(self.base_cell_size * old_zoom)
+        if old_cell_size > 0:
+            grid_x = scroll_x / old_cell_size
+            grid_y = scroll_y / old_cell_size
+        else:
+            grid_x = grid_y = 0
+        
+        # Update cell size based on new zoom - ensure it's always even for proper 2x2 guide grid alignment
+        raw_cell_size = self.base_cell_size * self.zoom_level
+        self.cell_size = int(raw_cell_size)
+        # Ensure cell_size is even for proper 2x2 guide grid alignment
+        if self.cell_size % 2 != 0:
+            self.cell_size += 1
+        
+        # Update canvas size and scroll region
+        canvas_width = self.grid_width * self.cell_size
+        canvas_height = self.grid_height * self.cell_size
+        self.configure(scrollregion=(0, 0, canvas_width, canvas_height))
+        
+        # Calculate new scroll position to keep the same grid point under mouse
+        new_scroll_x = grid_x * self.cell_size
+        new_scroll_y = grid_y * self.cell_size
+        
+        # Redraw the canvas
+        self.update_canvas()
+        
+        # Update scroll position to maintain zoom center
+        if mouse_x is not None and mouse_y is not None:
+            # Scroll so the same grid point is under the mouse
+            visible_width = self.winfo_width()
+            visible_height = self.winfo_height()
+            
+            target_x = new_scroll_x - mouse_x
+            target_y = new_scroll_y - mouse_y
+            
+            # Convert to scroll fractions
+            if canvas_width > visible_width:
+                scroll_x_fraction = target_x / (canvas_width - visible_width)
+                scroll_x_fraction = max(0, min(1, scroll_x_fraction))
+                self.xview_moveto(scroll_x_fraction)
+            
+            if canvas_height > visible_height:
+                scroll_y_fraction = target_y / (canvas_height - visible_height)
+                scroll_y_fraction = max(0, min(1, scroll_y_fraction))
+                self.yview_moveto(scroll_y_fraction)
+        else:
+            # Center the view on the calculated position
+            visible_width = self.winfo_width()
+            visible_height = self.winfo_height()
+            
+            if canvas_width > visible_width:
+                center_x = new_scroll_x - visible_width / 2
+                scroll_x_fraction = center_x / (canvas_width - visible_width)
+                scroll_x_fraction = max(0, min(1, scroll_x_fraction))
+                self.xview_moveto(scroll_x_fraction)
+            
+            if canvas_height > visible_height:
+                center_y = new_scroll_y - visible_height / 2
+                scroll_y_fraction = center_y / (canvas_height - visible_height)
+                scroll_y_fraction = max(0, min(1, scroll_y_fraction))
+                self.yview_moveto(scroll_y_fraction)
+        
+        # Update zoom display in parent
+        if self.map_drawer:
+            zoom_percent = int(self.zoom_level * 100)
+            self.map_drawer.zoom_var.set(f"{zoom_percent}%")
+    
+    def zoom_in(self, mouse_x=None, mouse_y=None):
+        """Increase zoom level to next discrete level"""
+        if self.zoom_index < len(self.zoom_levels) - 1:
+            self.zoom_index += 1
+            self.set_zoom(self.zoom_levels[self.zoom_index], mouse_x, mouse_y)
+    
+    def zoom_out(self, mouse_x=None, mouse_y=None):
+        """Decrease zoom level to previous discrete level"""
+        if self.zoom_index > 0:
+            self.zoom_index -= 1
+            self.set_zoom(self.zoom_levels[self.zoom_index], mouse_x, mouse_y)
+    
+    def zoom_reset(self):
+        """Reset zoom to 100%"""
+        self.zoom_index = 3  # 100% is at index 3
+        self.set_zoom(1.0)
+    
+    def zoom_to_level(self, level_percent):
+        """Zoom to specific percentage level"""
+        target_level = level_percent / 100.0
+        self.set_zoom(target_level)
+    
+    def get_zoom_level(self):
+        """Get current zoom level"""
+        return self.zoom_level
+        return self.zoom_level
 
 class MapDrawer:
     def __init__(self):
@@ -1610,71 +1864,175 @@ class MapDrawer:
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Left panel for controls
-        control_frame = ttk.Frame(main_frame)
-        control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        # Use PanedWindow to make the toolbar resizable
+        self.paned_window = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
+        self.paned_window.pack(fill=tk.BOTH, expand=True)
+        
+        # Left panel for controls (resizable toolbar with scrolling)
+        toolbar_container = ttk.Frame(self.paned_window)
+        self.paned_window.add(toolbar_container, weight=0)
+        
+        # Create a canvas and scrollbar for the toolbar
+        toolbar_canvas = tk.Canvas(toolbar_container, width=300, highlightthickness=0)
+        toolbar_scrollbar = ttk.Scrollbar(toolbar_container, orient=tk.VERTICAL, command=toolbar_canvas.yview)
+        self.scrollable_toolbar = ttk.Frame(toolbar_canvas)
+        
+        # Configure scrolling
+        self.scrollable_toolbar.bind(
+            "<Configure>",
+            lambda e: toolbar_canvas.configure(scrollregion=toolbar_canvas.bbox("all"))
+        )
+        
+        toolbar_canvas.create_window((0, 0), window=self.scrollable_toolbar, anchor="nw")
+        toolbar_canvas.configure(yscrollcommand=toolbar_scrollbar.set)
+        
+        # Pack the scrollable toolbar
+        toolbar_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        toolbar_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Bind mouse wheel to toolbar canvas and all its children
+        def _on_toolbar_mousewheel(event):
+            toolbar_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        def _on_toolbar_mousewheel_linux(event):
+            if event.num == 4:
+                toolbar_canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                toolbar_canvas.yview_scroll(1, "units")
+        
+        def bind_mousewheel_recursive(widget):
+            """Recursively bind mousewheel events to widget and all children"""
+            widget.bind("<MouseWheel>", _on_toolbar_mousewheel)  # Windows/Mac
+            widget.bind("<Button-4>", _on_toolbar_mousewheel_linux)  # Linux
+            widget.bind("<Button-5>", _on_toolbar_mousewheel_linux)  # Linux
+            for child in widget.winfo_children():
+                bind_mousewheel_recursive(child)
+        
+        # Apply mousewheel binding
+        toolbar_canvas.bind("<MouseWheel>", _on_toolbar_mousewheel)
+        toolbar_canvas.bind("<Button-4>", _on_toolbar_mousewheel_linux)
+        toolbar_canvas.bind("<Button-5>", _on_toolbar_mousewheel_linux)
+        
+        # We'll bind the scrollable_toolbar and its children after all widgets are created
+        self.toolbar_canvas = toolbar_canvas
+        self.bind_toolbar_mousewheel = bind_mousewheel_recursive
+        
+        # Use scrollable_toolbar as the control_frame from now on
+        control_frame = self.scrollable_toolbar
         
         # Grid size controls
         size_frame = ttk.LabelFrame(control_frame, text="Grid Size (Even Numbers Only)")
-        size_frame.pack(fill=tk.X, pady=(0, 10))
+        size_frame.pack(fill=tk.X, pady=(0, 10), padx=5)
+        
+        # Configure column weights for resizing
+        size_frame.columnconfigure(1, weight=1)
         
         ttk.Label(size_frame, text="Width:").grid(row=0, column=0, sticky='w', padx=5, pady=2)
         self.width_var = tk.IntVar(value=40)
-        width_spin = ttk.Spinbox(size_frame, from_=6, to=80, increment=2, width=8, 
+        width_spin = ttk.Spinbox(size_frame, from_=6, to=80, increment=2, 
                                 textvariable=self.width_var)
-        width_spin.grid(row=0, column=1, padx=5, pady=2)
+        width_spin.grid(row=0, column=1, padx=5, pady=2, sticky='ew')
         
         ttk.Label(size_frame, text="Height:").grid(row=1, column=0, sticky='w', padx=5, pady=2)
         self.height_var = tk.IntVar(value=30)
-        height_spin = ttk.Spinbox(size_frame, from_=6, to=60, increment=2, width=8, 
+        height_spin = ttk.Spinbox(size_frame, from_=6, to=60, increment=2, 
                                  textvariable=self.height_var)
-        height_spin.grid(row=1, column=1, padx=5, pady=2)
+        height_spin.grid(row=1, column=1, padx=5, pady=2, sticky='ew')
         
         update_btn = ttk.Button(size_frame, text="Update Grid Size", 
                                command=self.update_grid_size)
-        update_btn.grid(row=2, column=0, columnspan=2, pady=5)
+        update_btn.grid(row=2, column=0, columnspan=2, pady=5, padx=5, sticky='ew')
+        ToolTip(update_btn, "Apply new grid dimensions")
+        
+        # Zoom controls
+        zoom_frame = ttk.LabelFrame(control_frame, text="Zoom Controls")
+        zoom_frame.pack(fill=tk.X, pady=(0, 10), padx=5)
+        
+        zoom_buttons_frame = ttk.Frame(zoom_frame)
+        zoom_buttons_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        zoom_in_btn = ttk.Button(zoom_buttons_frame, text="Zoom In [+]", 
+                  command=self.zoom_in)
+        zoom_in_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
+        ToolTip(zoom_in_btn, "Increase zoom level")
+        
+        zoom_out_btn = ttk.Button(zoom_buttons_frame, text="Zoom Out [-]", 
+                  command=self.zoom_out)
+        zoom_out_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 2))
+        ToolTip(zoom_out_btn, "Decrease zoom level")
+        
+        zoom_reset_btn = ttk.Button(zoom_buttons_frame, text="100% [1]", 
+                  command=self.zoom_reset)
+        zoom_reset_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 0))
+        ToolTip(zoom_reset_btn, "Reset zoom to 100%")
+        
+        # Additional zoom level buttons
+        zoom_levels_frame = ttk.Frame(zoom_frame)
+        zoom_levels_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        ttk.Button(zoom_levels_frame, text="25%", 
+                  command=lambda: self.zoom_to_level(25)).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 1))
+        ttk.Button(zoom_levels_frame, text="50%", 
+                  command=lambda: self.zoom_to_level(50)).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(1, 1))
+        ttk.Button(zoom_levels_frame, text="200%", 
+                  command=lambda: self.zoom_to_level(200)).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(1, 1))
+        ttk.Button(zoom_levels_frame, text="400%", 
+                  command=lambda: self.zoom_to_level(400)).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(1, 0))
+        
+        # Zoom level display
+        self.zoom_var = tk.StringVar(value="100%")
+        zoom_label = ttk.Label(zoom_frame, textvariable=self.zoom_var)
+        zoom_label.pack(pady=2)
         
         # Drawing mode selection
         mode_frame = ttk.LabelFrame(control_frame, text="Drawing Tools")
-        mode_frame.pack(fill=tk.X, pady=(0, 10))
+        mode_frame.pack(fill=tk.X, pady=(0, 10), padx=5)
         
         self.drawing_mode = tk.StringVar(value='wall')
         
-        self.wall_btn = ttk.Button(mode_frame, text="Wall (#) - Line Drawing [W]")
+        self.wall_btn = ttk.Button(mode_frame, text="Wall (W)")
         self.wall_btn.pack(fill=tk.X, padx=5, pady=2)
         self.wall_btn.configure(command=lambda: self.set_drawing_mode('wall'))
+        ToolTip(self.wall_btn, "Click and drag to draw wall lines")
         
-        self.start_btn = ttk.Button(mode_frame, text="Start (S) - 2x2 Block [S]")
+        self.start_btn = ttk.Button(mode_frame, text="Start (S)")
         self.start_btn.pack(fill=tk.X, padx=5, pady=2)
         self.start_btn.configure(command=lambda: self.set_drawing_mode('start'))
+        ToolTip(self.start_btn, "Click to place 2x2 start block")
         
-        self.finish_btn = ttk.Button(mode_frame, text="Finish (F) - 2x2 Block [F]")
+        self.finish_btn = ttk.Button(mode_frame, text="Finish (F)")
         self.finish_btn.pack(fill=tk.X, padx=5, pady=2)
         self.finish_btn.configure(command=lambda: self.set_drawing_mode('finish'))
+        ToolTip(self.finish_btn, "Click to place 2x2 finish block")
         
-        self.asterisk_btn = ttk.Button(mode_frame, text="Asterisk Path - Draw Lines with Arrow Keys [A]")
+        self.asterisk_btn = ttk.Button(mode_frame, text="Asterisk Path (A)")
         self.asterisk_btn.pack(fill=tk.X, padx=5, pady=2)
         self.asterisk_btn.configure(command=lambda: self.set_drawing_mode('asterisk'))
+        ToolTip(self.asterisk_btn, "Use arrow keys to draw path from Start")
         
-        self.start_path_btn = ttk.Button(mode_frame, text="Start Path - Mark Entry Points [Q]")
+        self.start_path_btn = ttk.Button(mode_frame, text="Start Path (Q)")
         self.start_path_btn.pack(fill=tk.X, padx=5, pady=2)
         self.start_path_btn.configure(command=lambda: self.set_drawing_mode('start_path'))
+        ToolTip(self.start_path_btn, "Click directions around Start block")
         
-        self.finish_path_btn = ttk.Button(mode_frame, text="Finish Path - Mark Exit Points [T]")
+        self.finish_path_btn = ttk.Button(mode_frame, text="Finish Path (T)")
         self.finish_path_btn.pack(fill=tk.X, padx=5, pady=2)
         self.finish_path_btn.configure(command=lambda: self.set_drawing_mode('finish_path'))
+        ToolTip(self.finish_path_btn, "Click directions around Finish block")
         
-        self.erase_btn = ttk.Button(mode_frame, text="Erase (.) - Line Erasing [E]")
+        self.erase_btn = ttk.Button(mode_frame, text="Erase (E)")
         self.erase_btn.pack(fill=tk.X, padx=5, pady=2)
         self.erase_btn.configure(command=lambda: self.set_drawing_mode('erase'))
+        ToolTip(self.erase_btn, "Click and drag to erase lines")
         
-        self.select_btn = ttk.Button(mode_frame, text="Select - Rectangle Selection [R]")
+        self.select_btn = ttk.Button(mode_frame, text="Select (R)")
         self.select_btn.pack(fill=tk.X, padx=5, pady=2)
         self.select_btn.configure(command=lambda: self.set_drawing_mode('select'))
+        ToolTip(self.select_btn, "Rectangle selection for copy/paste")
         
         # Options
         options_frame = ttk.LabelFrame(control_frame, text="Options")
-        options_frame.pack(fill=tk.X, pady=(0, 10))
+        options_frame.pack(fill=tk.X, pady=(0, 10), padx=5)
         
         self.guide_var = tk.BooleanVar(value=True)
         guide_check = ttk.Checkbutton(options_frame, text="Show 2x2 Guide Grid", 
@@ -1683,19 +2041,20 @@ class MapDrawer:
         
         # Action buttons
         action_frame = ttk.LabelFrame(control_frame, text="Actions")
-        action_frame.pack(fill=tk.X, pady=(0, 10))
+        action_frame.pack(fill=tk.X, pady=(0, 10), padx=5)
         
         # Undo/Redo buttons
         undo_redo_frame = ttk.Frame(action_frame)
-        undo_redo_frame.pack(fill=tk.X, padx=5, pady=2)
         
         self.undo_btn = ttk.Button(undo_redo_frame, text="Undo [Ctrl+Z]", 
                                   command=self.undo, state='disabled')
         self.undo_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
+        ToolTip(self.undo_btn, "Undo last action")
         
         self.redo_btn = ttk.Button(undo_redo_frame, text="Redo [Ctrl+Y]", 
                                   command=self.redo, state='disabled')
         self.redo_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 0))
+        ToolTip(self.redo_btn, "Redo last undone action")
         
         # Selection operations frame
         selection_frame = ttk.LabelFrame(action_frame, text="Selection Operations")
@@ -1720,59 +2079,24 @@ class MapDrawer:
                                        command=self.clear_selection_ui)
         self.clear_sel_btn.pack(fill=tk.X, padx=2, pady=2)
         
-        ttk.Button(action_frame, text="Clear Grid", 
-                  command=self.clear_grid).pack(fill=tk.X, padx=5, pady=2)
-        ttk.Button(action_frame, text="Save Map", 
-                  command=self.save_map).pack(fill=tk.X, padx=5, pady=2)
-        ttk.Button(action_frame, text="Load Map", 
-                  command=self.load_map).pack(fill=tk.X, padx=5, pady=2)
+        clear_btn = ttk.Button(action_frame, text="Clear Grid", 
+                  command=self.clear_grid)
+        clear_btn.pack(fill=tk.X, padx=5, pady=2)
+        ToolTip(clear_btn, "Clear all content from grid")
         
-        # Instructions
-        instructions_frame = ttk.LabelFrame(control_frame, text="Instructions")
-        instructions_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        save_btn = ttk.Button(action_frame, text="Save Map", 
+                  command=self.save_map)
+        save_btn.pack(fill=tk.X, padx=5, pady=2)
+        ToolTip(save_btn, "Save current map to file")
         
-        instructions_text = tk.Text(instructions_frame, height=12, width=30, wrap=tk.WORD)
-        instructions_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        load_btn = ttk.Button(action_frame, text="Load Map", 
+                  command=self.load_map)
+        load_btn.pack(fill=tk.X, padx=5, pady=2)
+        ToolTip(load_btn, "Load map from file")
         
-        instructions_content = """ENHANCED FEATURES:
-
-• Grid sizes are in multiples of 2
-• Blue lines show 2x2 guide grid
-
-WALL MODE:
-• Click and drag to draw wall lines
-• AXIS SNAPPING: Lines snap to horizontal 
-  or vertical based on initial direction
-• Once you start drawing in one direction,
-  the line is locked to that axis
-• Much faster than individual clicks
-
-START/FINISH MODES:
-• Click anywhere to place 2x2 blocks
-• Auto-aligns to 2x2 grid boundaries
-• S = Start, F = Finish
-
-ASTERISK MODE:
-• Click to start drawing from Start block
-• Each arrow key draws a line until hitting walls
-• Shows direction arrows on each block
-• Auto-exits when reaching Finish block
-
-SYMBOLS:
-• # = Wall
-• S = Start (2x2 block)
-• F = Finish (2x2 block)
-• * = Asterisk path with directions
-• . = Empty space
-
-The blue guide lines help you see where 2x2 blocks will be placed."""
-        
-        instructions_text.insert(tk.END, instructions_content)
-        instructions_text.configure(state='disabled')
-        
-        # Canvas frame with scrollbars
-        canvas_frame = ttk.Frame(main_frame)
-        canvas_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # Canvas frame with scrollbars (added to paned window)
+        canvas_frame = ttk.Frame(self.paned_window)
+        self.paned_window.add(canvas_frame, weight=1)
         
         # Create canvas with scrollbars
         self.canvas = GridCanvas(canvas_frame, map_drawer=self, bg='white')
@@ -1789,7 +2113,7 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         # Status bar
-        self.status_var = tk.StringVar(value="Ready - Current tool: Wall (Click and drag to draw lines)")
+        self.status_var = tk.StringVar(value="Ready - Wall (W)")
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         
@@ -1801,6 +2125,33 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
         
         # Initial update of undo/redo button states
         self.update_undo_redo_buttons()
+        
+        # Bind mousewheel scrolling to toolbar and all its children
+        self.bind_toolbar_mousewheel(self.scrollable_toolbar)
+        
+        # Configure toolbar resizing
+        self.configure_toolbar_resizing()
+    
+    def configure_toolbar_resizing(self):
+        """Configure the toolbar to resize its contents when the paned window changes"""
+        def on_toolbar_resize(event=None):
+            # Get the current width of the toolbar canvas
+            canvas_width = self.toolbar_canvas.winfo_width()
+            
+            # Update the window width to match the canvas width
+            if canvas_width > 1:  # Make sure canvas is actually rendered
+                # Find the window item containing our scrollable_toolbar
+                for item in self.toolbar_canvas.find_all():
+                    if self.toolbar_canvas.type(item) == "window":
+                        self.toolbar_canvas.itemconfig(item, width=canvas_width)
+                        break
+        
+        # Bind the resize event to the toolbar canvas
+        self.toolbar_canvas.bind("<Configure>", on_toolbar_resize)
+        
+        # Also bind to the paned window for when the sash is moved
+        self.paned_window.bind("<Button1-Motion>", lambda e: self.root.after_idle(on_toolbar_resize))
+        self.paned_window.bind("<ButtonRelease-1>", lambda e: self.root.after_idle(on_toolbar_resize))
     
     def undo(self):
         """Undo the last action"""
@@ -1851,14 +2202,14 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
         
         # Visual feedback for active button
         button_style = {
-            'wall': ('lightblue', 'Wall mode (W) - Click and drag to draw wall lines'),
-            'start': ('lightgreen', 'Start mode (S) - Click to place 2x2 start block'),
-            'finish': ('lightcoral', 'Finish mode (F) - Click to place 2x2 finish block'),
-            'asterisk': ('mediumpurple', 'Asterisk mode (A) - Each arrow key draws a line until hitting walls'),
-            'start_path': ('lightgreen', 'Start Path mode (Q) - Click adjacent to Start block to mark entry points'),
-            'finish_path': ('lightcoral', 'Finish Path mode (T) - Click adjacent to Finish block to mark exit points'),
-            'erase': ('lightgray', 'Erase mode (E) - Click and drag to erase lines'),
-            'select': ('lightyellow', 'Select mode (R) - Click and drag to select rectangle')
+            'wall': ('lightblue', 'Wall (W) - Line drawing'),
+            'start': ('lightgreen', 'Start (S) - 2x2 block'),
+            'finish': ('lightcoral', 'Finish (F) - 2x2 block'),
+            'asterisk': ('mediumpurple', 'Asterisk (A) - Arrow key drawing'),
+            'start_path': ('lightgreen', 'Start Path (Q) - Mark entry points'),
+            'finish_path': ('lightcoral', 'Finish Path (T) - Mark exit points'),
+            'erase': ('lightgray', 'Erase (E) - Line erasing'),
+            'select': ('lightyellow', 'Select (R) - Rectangle selection')
         }
         
         # Reset all buttons
@@ -1882,6 +2233,28 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
             self.status_var.set("2x2 guide grid enabled")
         else:
             self.status_var.set("2x2 guide grid disabled")
+    
+    def zoom_in(self):
+        """Zoom in the map"""
+        self.canvas.zoom_in()
+        zoom_percent = int(self.canvas.get_zoom_level() * 100)
+        self.status_var.set(f"Zoomed in to {zoom_percent}%")
+    
+    def zoom_out(self):
+        """Zoom out the map"""
+        self.canvas.zoom_out()
+        zoom_percent = int(self.canvas.get_zoom_level() * 100)
+        self.status_var.set(f"Zoomed out to {zoom_percent}%")
+    
+    def zoom_reset(self):
+        """Reset zoom to 100%"""
+        self.canvas.zoom_reset()
+        self.status_var.set("Zoom reset to 100%")
+    
+    def zoom_to_level(self, level_percent):
+        """Zoom to specific percentage level"""
+        self.canvas.zoom_to_level(level_percent)
+        self.status_var.set(f"Zoom set to {level_percent}%")
     
     def clear_grid(self):
         if messagebox.askyesno("Clear Grid", "Are you sure you want to clear the entire grid?"):
@@ -2155,6 +2528,23 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
         self.root.bind("<Control-Y>", lambda e: self.redo())
         self.root.bind("<Control-Shift-Z>", lambda e: self.redo())  # Alternative redo
         
+        # Zoom shortcuts (Aseprite-style)
+        self.root.bind("<plus>", lambda e: self.zoom_in())
+        self.root.bind("<equal>", lambda e: self.zoom_in())  # + key without shift
+        self.root.bind("<KP_Add>", lambda e: self.zoom_in())  # Numpad +
+        self.root.bind("<minus>", lambda e: self.zoom_out())
+        self.root.bind("<KP_Subtract>", lambda e: self.zoom_out())  # Numpad -
+        self.root.bind("<Key-1>", lambda e: self.zoom_reset())  # 1 key for 100%
+        self.root.bind("<KP_1>", lambda e: self.zoom_reset())  # Numpad 1
+        self.root.bind("<Key-2>", lambda e: self.zoom_to_level(200))  # 2 key for 200%
+        self.root.bind("<Key-3>", lambda e: self.zoom_to_level(300))  # 3 key for 300%
+        self.root.bind("<Key-4>", lambda e: self.zoom_to_level(400))  # 4 key for 400%
+        
+        # Mouse wheel zoom (when over canvas)
+        self.canvas.bind("<Button-4>", self._on_mouse_wheel_up)  # Linux
+        self.canvas.bind("<Button-5>", self._on_mouse_wheel_down)  # Linux
+        self.canvas.bind("<MouseWheel>", self._on_mouse_wheel)  # Windows/Mac
+        
         # Selection shortcuts
         self.root.bind("<Control-c>", lambda e: self.copy_selection())
         self.root.bind("<Control-C>", lambda e: self.copy_selection())
@@ -2165,117 +2555,6 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
         
         # Make sure the root window can receive keyboard focus
         self.root.focus_set()
-        
-        # Update instructions to include keyboard shortcuts
-        self.update_instructions_with_shortcuts()
-    
-    def update_instructions_with_shortcuts(self):
-        """Update the instructions text to include keyboard shortcuts"""
-        # Find the instructions text widget and update it
-        for widget in self.root.winfo_children():
-            if isinstance(widget, ttk.Frame):
-                for child in widget.winfo_children():
-                    if isinstance(child, ttk.Frame):
-                        for grandchild in child.winfo_children():
-                            if isinstance(grandchild, ttk.LabelFrame) and str(grandchild['text']) == 'Instructions':
-                                for text_widget in grandchild.winfo_children():
-                                    if isinstance(text_widget, tk.Text):
-                                        text_widget.configure(state='normal')
-                                        text_widget.delete(1.0, tk.END)
-                                        
-                                        instructions_content = """ENHANCED FEATURES:
-
-• Grid sizes are in multiples of 2
-• Blue lines show 2x2 guide grid
-• Full undo/redo support
-• Only one Start and one Finish allowed
-
-KEYBOARD SHORTCUTS:
-• W = Wall mode
-• S = Start mode  
-• F = Finish mode
-• A = Asterisk mode
-• E = Erase mode
-• R = Select mode
-• Ctrl+Z = Undo
-• Ctrl+Y = Redo
-• Ctrl+C = Copy selection
-• Ctrl+V = Paste selection
-• Delete = Delete selection
-• Esc = Clear selection
-
-WALL MODE:
-• Click and drag to draw wall lines
-• AXIS SNAPPING: Lines snap to horizontal 
-  or vertical based on initial direction
-• Once you start drawing in one direction,
-  the line is locked to that axis
-• Much faster than individual clicks
-
-ERASE MODE:
-• Click and drag to erase lines
-• AXIS SNAPPING: Same behavior as walls
-• Erases in straight horizontal/vertical lines
-• SMART 2x2 DETECTION: Automatically erases entire
-  Start/Finish/Asterisk blocks when clicked
-• Perfect for removing wall sections and blocks
-
-SELECT MODE:
-• Click and drag to select rectangular areas
-• Blue dashed rectangle shows selection
-• Copy, paste, or delete selected areas
-• Perfect for duplicating maze sections
-
-START/FINISH MODES:
-• Click anywhere to place 2x2 blocks
-• Auto-aligns to 2x2 grid boundaries
-• Only ONE start and ONE finish allowed
-• Placing new start/finish removes old one
-• S = Start, F = Finish
-
-ASTERISK MODE:
-• Click to start drawing from Start block
-• Each arrow key (↑↓←→) draws a continuous line of 2x2 blocks
-• Line continues until it hits a wall or boundary
-• Shows direction arrows on each block in the line
-• Auto-exits when reaching Finish block
-• ESC key to exit asterisk mode early
-• Saves sequence of all directions taken
-
-UNDO/REDO:
-• Up to 50 actions can be undone
-• Works with all drawing operations
-• Clear grid action can also be undone
-
-SYMBOLS:
-• 1-9 = Smart Wall Types (auto-oriented):
-  • 1 = Bottom-left corner (facing accessible area)
-  • 3 = Bottom-right corner (facing accessible area)
-  • 7 = Top-left corner (facing accessible area)
-  • 9 = Top-right corner (facing accessible area)
-  • 2 = Bottom edge (facing accessible area)
-  • 8 = Top edge (facing accessible area)
-  • 4 = Left edge (facing accessible area)
-  • 6 = Right edge (facing accessible area)
-  • 5 = Center/standalone wall
-• S = Start (2x2 block) - also treated as accessible area
-• F = Finish (2x2 block) - also treated as accessible area
-• * = Asterisk path with direction arrows (auto-generated from Start)
-• , = Accessible area (yellow - flood-filled from Start)
-• . = Empty space
-
-FLOOD-FILL SYSTEM:
-• Place Start (S) to trigger flood-fill
-• Yellow areas + Start/Finish/Asterisk show where player can reach
-• Walls automatically orient towards accessible areas
-• Start, Finish, and Asterisk blocks all count as accessible areas
-• System ensures walls face the "inside" of the maze
-
-The blue guide lines help you see where 2x2 blocks will be placed."""
-                                        
-                                        text_widget.insert(tk.END, instructions_content)
-                                        text_widget.configure(state='disabled')
-                                        return
     
     def copy_selection(self):
         """Copy the selected area to clipboard"""
@@ -2321,6 +2600,42 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
         # Enable/disable paste based on clipboard
         paste_state = 'normal' if hasattr(self.canvas, 'clipboard') and self.canvas.clipboard else 'disabled'
         self.paste_btn.configure(state=paste_state)
+    
+    def _on_mouse_wheel(self, event):
+        """Handle mouse wheel zoom and scrolling (Windows/Mac)"""
+        if event.state & 0x4:  # Ctrl pressed - vertical scrolling
+            if event.delta > 0:
+                self.canvas.yview_scroll(-1, "units")
+            else:
+                self.canvas.yview_scroll(1, "units")
+        elif event.state & 0x1:  # Shift pressed - horizontal scrolling
+            if event.delta > 0:
+                self.canvas.xview_scroll(-1, "units")
+            else:
+                self.canvas.xview_scroll(1, "units")
+        else:  # No modifier - zoom
+            if event.delta > 0:
+                self.canvas.zoom_in(event.x, event.y)
+            else:
+                self.canvas.zoom_out(event.x, event.y)
+    
+    def _on_mouse_wheel_up(self, event):
+        """Handle mouse wheel up (Linux)"""
+        if event.state & 0x4:  # Ctrl pressed - vertical scrolling
+            self.canvas.yview_scroll(-1, "units")
+        elif event.state & 0x1:  # Shift pressed - horizontal scrolling
+            self.canvas.xview_scroll(-1, "units")
+        else:  # No modifier - zoom
+            self.canvas.zoom_in(event.x, event.y)
+    
+    def _on_mouse_wheel_down(self, event):
+        """Handle mouse wheel down (Linux)"""
+        if event.state & 0x4:  # Ctrl pressed - vertical scrolling
+            self.canvas.yview_scroll(1, "units")
+        elif event.state & 0x1:  # Shift pressed - horizontal scrolling
+            self.canvas.xview_scroll(1, "units")
+        else:  # No modifier - zoom
+            self.canvas.zoom_out(event.x, event.y)
 
     def run(self):
         self.root.mainloop()
