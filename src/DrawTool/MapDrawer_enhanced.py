@@ -33,6 +33,11 @@ class GridCanvas(tk.Canvas):
         self.asterisk_direction_sequence = []  # Ordered list of directions taken
         self.asterisk_cursor = None  # Current cursor position (x, y) when drawing asterisk path
         self.asterisk_drawing_active = False  # Whether user is actively drawing asterisk path
+        self.asterisk_last_direction = None  # Track last direction for consecutive move detection
+        
+        # Path marking for Start and Finish entry/exit points
+        self.start_path_marks = []  # List of directions marked for start entry (e.g., ['top', 'left'])
+        self.finish_path_marks = []  # List of directions marked for finish exit (e.g., ['bottom', 'right'])
         
         # Selection for copy/paste operations
         self.selection_start = None
@@ -151,6 +156,7 @@ class GridCanvas(tk.Canvas):
         top_left_pos = (start_x, start_y)
         self.asterisk_directions = {top_left_pos: []}
         self.asterisk_direction_sequence = []
+        self.asterisk_last_direction = None  # Reset direction tracking
         
         # Mark starting 2x2 position (but don't overwrite Start block)
         for dy in range(2):
@@ -160,6 +166,11 @@ class GridCanvas(tk.Canvas):
                 if (mark_x < self.grid_width and mark_y < self.grid_height and 
                     self.grid[mark_y][mark_x] not in ['S', 'F']):
                     self.grid[mark_y][mark_x] = '*'
+        
+        # Save initial state when starting asterisk drawing
+        self.save_state()
+        if self.map_drawer:
+            self.map_drawer.update_undo_redo_buttons()
         
         self.update_canvas()
         
@@ -195,11 +206,21 @@ class GridCanvas(tk.Canvas):
         if direction not in direction_vectors:
             return
         
+        # Check if this is a consecutive move in the same direction
+        is_consecutive = (self.asterisk_last_direction == direction)
+        direction_changed = not is_consecutive and self.asterisk_last_direction is not None
+        
         # Starting position
         cursor_x, cursor_y = self.asterisk_cursor
         dx, dy = direction_vectors[direction]
         
         blocks_drawn = 0
+        
+        # Save state when direction changes (before drawing new blocks)
+        if direction_changed:
+            self.save_state()
+            if self.map_drawer:
+                self.map_drawer.update_undo_redo_buttons()
         
         # Keep drawing in the direction until we hit a wall or boundary
         while True:
@@ -271,11 +292,26 @@ class GridCanvas(tk.Canvas):
             if finish_reached:
                 # Update cursor position and finish
                 self.asterisk_cursor = (cursor_x, cursor_y)
+                # Save state for this complete move (including finish)
+                if blocks_drawn > 0:
+                    self.save_state()
+                    if self.map_drawer:
+                        self.map_drawer.update_undo_redo_buttons()
                 self.finish_asterisk_drawing()
                 return
         
         # Update cursor to final position
         self.asterisk_cursor = (cursor_x, cursor_y)
+        
+        # Update last direction tracker
+        if blocks_drawn > 0:
+            self.asterisk_last_direction = direction
+        
+        # Save state at the end of the move sequence (for the last move or single moves)
+        if blocks_drawn > 0:
+            self.save_state()
+            if self.map_drawer:
+                self.map_drawer.update_undo_redo_buttons()
         
         self.update_canvas()
         
@@ -284,7 +320,8 @@ class GridCanvas(tk.Canvas):
                 # Show compressed direction count
                 compressed_directions = self.compress_direction_sequence(self.asterisk_direction_sequence)
                 total_compressed = len(compressed_directions)
-                self.map_drawer.status_var.set(f"Drew {blocks_drawn} blocks {direction_symbols[direction]}. Compressed moves: {total_compressed}. Use arrow keys to continue, ESC to finish.")
+                consecutive_info = " (consecutive)" if is_consecutive else ""
+                self.map_drawer.status_var.set(f"Drew {blocks_drawn} blocks {direction_symbols[direction]}{consecutive_info}. Compressed moves: {total_compressed}. Use arrow keys to continue, ESC to finish.")
             else:
                 self.map_drawer.status_var.set(f"Cannot move {direction} - blocked by wall. Use other arrow keys or ESC to finish.")
     
@@ -317,6 +354,7 @@ class GridCanvas(tk.Canvas):
         self.asterisk_direction_sequence = []
         self.asterisk_cursor = None
         self.asterisk_drawing_active = False
+        self.asterisk_last_direction = None
     
     def find_block_position(self, symbol):
         """Find the top-left position of a 2x2 block (S or F)"""
@@ -335,6 +373,82 @@ class GridCanvas(tk.Canvas):
             for x in range(self.grid_width):
                 if self.grid[y][x] == symbol:
                     self.grid[y][x] = '.'
+    
+    def mark_path_direction(self, grid_x, grid_y, path_type):
+        """
+        Mark a direction for Start or Finish path entry/exit
+        path_type: 'start_path' or 'finish_path'
+        """
+        # Find the appropriate block (Start or Finish)
+        target_symbol = 'S' if path_type == 'start_path' else 'F'
+        block_pos = self.find_block_position(target_symbol)
+        
+        if not block_pos:
+            if self.map_drawer:
+                block_name = "Start" if path_type == 'start_path' else "Finish"
+                self.map_drawer.status_var.set(f"No {block_name} block found! Place a {block_name} block first.")
+            return
+        
+        block_x, block_y = block_pos
+        
+        # Determine which direction was clicked relative to the 2x2 block
+        # The block occupies (block_x, block_y) to (block_x+1, block_y+1)
+        direction = None
+        
+        # Check if click is adjacent to the 2x2 block
+        if grid_y == block_y - 1 and block_x <= grid_x <= block_x + 1:
+            direction = 'top'
+        elif grid_y == block_y + 2 and block_x <= grid_x <= block_x + 1:
+            direction = 'bottom'
+        elif grid_x == block_x - 1 and block_y <= grid_y <= block_y + 1:
+            direction = 'left'
+        elif grid_x == block_x + 2 and block_y <= grid_y <= block_y + 1:
+            direction = 'right'
+        
+        if not direction:
+            if self.map_drawer:
+                self.map_drawer.status_var.set("Click adjacent to the Start/Finish block to mark entry/exit direction.")
+            return
+        
+        # Get the appropriate marks list
+        marks_list = self.start_path_marks if path_type == 'start_path' else self.finish_path_marks
+        
+        # Toggle the direction (add if not present, remove if present)
+        if direction in marks_list:
+            marks_list.remove(direction)
+            action = "removed"
+        else:
+            marks_list.append(direction)
+            action = "added"
+        
+        # Update display and save state
+        self.save_state()
+        self.update_canvas()
+        
+        if self.map_drawer:
+            block_name = "Start" if path_type == 'start_path' else "Finish"
+            marks_count = len(marks_list)
+            self.map_drawer.status_var.set(f"{block_name} path mark {action}: {direction} (total: {marks_count})")
+            self.map_drawer.update_undo_redo_buttons()
+            print(f"DEBUG: {block_name} path marks: {marks_list}")  # Debug output
+    
+    def get_possible_entry_exit_directions(self):
+        """
+        Convert marked directions to the opposite directions for entry/exit
+        Returns (start_entry_directions, finish_exit_directions)
+        """
+        # Convert marked directions to entry/exit directions (opposite)
+        direction_opposites = {
+            'top': 'down',
+            'bottom': 'up', 
+            'left': 'right',
+            'right': 'left'
+        }
+        
+        start_entry = [direction_opposites[d] for d in self.start_path_marks]
+        finish_exit = [direction_opposites[d] for d in self.finish_path_marks]
+        
+        return start_entry, finish_exit
         
     def erase_2x2_block_if_needed(self, grid_x, grid_y):
         """
@@ -452,6 +566,43 @@ class GridCanvas(tk.Canvas):
             'bottom': self.is_wall(x, y + 1)
         }
         
+        # Special corner detection based on 2x2 chunk position
+        # Check if this wall is at a specific position within a 2x2 chunk
+        chunk_x = x % 2
+        chunk_y = y % 2
+        
+        # Corner case: wall at bottom-right of 2x2 chunk (chunk_x=1, chunk_y=1)
+        if chunk_x == 1 and chunk_y == 1:
+            # Check if bottom-right diagonal has a wall, and bottom+right have commas
+            if (self.is_wall(x + 1, y + 1) and 
+                self.has_yellow_mark(x, y + 1) and 
+                self.has_yellow_mark(x + 1, y)):
+                return '3'  # Bottom-right corner
+        
+        # Corner case: wall at bottom-left of 2x2 chunk (chunk_x=0, chunk_y=1)
+        if chunk_x == 0 and chunk_y == 1:
+            # Check if bottom-left diagonal has a wall, and bottom+left have commas
+            if (self.is_wall(x - 1, y + 1) and 
+                self.has_yellow_mark(x, y + 1) and 
+                self.has_yellow_mark(x - 1, y)):
+                return '1'  # Bottom-left corner
+        
+        # Corner case: wall at top-right of 2x2 chunk (chunk_x=1, chunk_y=0)
+        if chunk_x == 1 and chunk_y == 0:
+            # Check if top-right diagonal has a wall, and top+right have commas
+            if (self.is_wall(x + 1, y - 1) and 
+                self.has_yellow_mark(x, y - 1) and 
+                self.has_yellow_mark(x + 1, y)):
+                return '9'  # Top-right corner
+        
+        # Corner case: wall at top-left of 2x2 chunk (chunk_x=0, chunk_y=0)
+        if chunk_x == 0 and chunk_y == 0:
+            # Check if top-left diagonal has a wall, and top+left have commas
+            if (self.is_wall(x - 1, y - 1) and 
+                self.has_yellow_mark(x, y - 1) and 
+                self.has_yellow_mark(x - 1, y)):
+                return '7'  # Top-left corner
+
         # Determine wall orientation based on accessible areas and wall neighbors
         # Corner cases - check for accessible areas in diagonal directions
         if 'bottom_right' in yellow_dirs or ('bottom' in yellow_dirs and 'right' in yellow_dirs):
@@ -668,6 +819,14 @@ class GridCanvas(tk.Canvas):
             elif self.drawing_mode == 'asterisk':
                 # Start manual asterisk path drawing
                 self.start_asterisk_drawing()
+            elif self.drawing_mode == 'start_path':
+                # Mark path direction for Start block
+                self.mark_path_direction(grid_x, grid_y, 'start_path')
+                return  # Don't set is_drawing for path marking
+            elif self.drawing_mode == 'finish_path':
+                # Mark path direction for Finish block
+                self.mark_path_direction(grid_x, grid_y, 'finish_path')
+                return  # Don't set is_drawing for path marking
             elif self.drawing_mode == 'erase':
                 # Check if we're erasing a 2x2 block first
                 if not self.erase_2x2_block_if_needed(grid_x, grid_y):
@@ -924,15 +1083,291 @@ class GridCanvas(tk.Canvas):
                         # Draw cursor outline for each cell in the 2x2 block
                         self.create_rectangle(cursor_x1, cursor_y1, cursor_x2, cursor_y2, 
                                             outline='lime', width=3)
+        
+        # Draw path marks for Start and Finish blocks
+        self.draw_path_marks()
+                    
+    def draw_path_marks(self):
+        """Draw colored overlays for marked path directions on Start and Finish blocks"""
+        print(f"DEBUG: Drawing path marks - Start: {self.start_path_marks}, Finish: {self.finish_path_marks}")  # Debug
+        
+        # Draw Start path marks (green overlay)
+        start_pos = self.find_block_position('S')
+        if start_pos and self.start_path_marks:
+            print(f"DEBUG: Drawing start marks at {start_pos} with directions {self.start_path_marks}")  # Debug
+            self.draw_path_marks_for_block(start_pos, self.start_path_marks, 'lightgreen', 'Start Entry')
+        
+        # Draw Finish path marks (red overlay)
+        finish_pos = self.find_block_position('F')
+        if finish_pos and self.finish_path_marks:
+            print(f"DEBUG: Drawing finish marks at {finish_pos} with directions {self.finish_path_marks}")  # Debug
+            self.draw_path_marks_for_block(finish_pos, self.finish_path_marks, 'lightcoral', 'Finish Exit')
+    
+    def draw_path_marks_for_block(self, block_pos, path_marks, color, label_prefix):
+        """Draw path marks extending from a specific block until hitting walls or grid edges"""
+        block_x, block_y = block_pos
+        print(f"DEBUG: draw_path_marks_for_block called with block_pos={block_pos}, path_marks={path_marks}, color={color}")
+        
+        # Direction vectors for movement
+        direction_vectors = {
+            'top': (0, -1),
+            'bottom': (0, 1),
+            'left': (-1, 0),
+            'right': (1, 0)
+        }
+        
+        # Direction symbols for arrows
+        direction_symbols = {
+            'top': '↑',
+            'bottom': '↓', 
+            'left': '←',
+            'right': '→'
+        }
+        
+        for direction in path_marks:
+            print(f"DEBUG: Processing direction: {direction}")
+            if direction in direction_vectors:
+                dx, dy = direction_vectors[direction]
+                
+                # Find the first open cell in each direction from the 2x2 block
+                search_positions = []
+                if direction == 'top':
+                    # Search upward from the top edge of the 2x2 block
+                    search_positions = [(block_x, block_y - 1), (block_x + 1, block_y - 1)]
+                elif direction == 'bottom':
+                    # Search downward from the bottom edge of the 2x2 block
+                    search_positions = [(block_x, block_y + 2), (block_x + 1, block_y + 2)]
+                elif direction == 'left':
+                    # Search leftward from the left edge of the 2x2 block
+                    search_positions = [(block_x - 1, block_y), (block_x - 1, block_y + 1)]
+                elif direction == 'right':
+                    # Search rightward from the right edge of the 2x2 block
+                    search_positions = [(block_x + 2, block_y), (block_x + 2, block_y + 1)]
+                
+                print(f"DEBUG: Search positions for {direction}: {search_positions}")
+                
+                # For each search position, draw overlays for walls and then open cells
+                for search_x, search_y in search_positions:
+                    current_x, current_y = search_x, search_y
+                    first_open_found = False
+                    overlay_cells_drawn = 0
+                    
+                    # First, draw overlays on walls (green with no arrows)
+                    while (0 <= current_x < self.grid_width and 
+                           0 <= current_y < self.grid_height):
+                        
+                        cell_content = self.grid[current_y][current_x]
+                        print(f"DEBUG: Checking at ({current_x}, {current_y}): '{cell_content}'")
+                        
+                        # If it's a wall, draw overlay with no arrow
+                        if cell_content in ['#', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
+                            print(f"DEBUG: Drawing wall overlay at ({current_x}, {current_y})")
+                            
+                            x1 = current_x * self.cell_size
+                            y1 = current_y * self.cell_size
+                            x2 = x1 + self.cell_size
+                            y2 = y1 + self.cell_size
+                            
+                            # Use different colors for walls based on start vs finish path
+                            if 'start' in label_prefix.lower():
+                                wall_color = 'lightgreen'
+                            else:  # finish path
+                                wall_color = 'lightcoral'
+                            
+                            # Draw colored overlay on walls
+                            rect_id = self.create_rectangle(x1, y1, x2, y2, 
+                                                fill=wall_color, outline=wall_color, stipple='gray50')
+                            print(f"DEBUG: Created wall overlay {rect_id} with color {wall_color}")
+                            overlay_cells_drawn += 1
+                        
+                        # If we find an open cell, start the colored overlay from here
+                        elif cell_content == '.':
+                            first_open_found = True
+                            print(f"DEBUG: Found first open cell at ({current_x}, {current_y})")
+                            break
+                        
+                        # Move to next position in the search direction
+                        current_x += dx
+                        current_y += dy
+                    
+                    # If we found an open cell, draw the colored overlay extending from there
+                    if first_open_found:
+                        overlay_start_x, overlay_start_y = current_x, current_y
+                        first_open_cell = True
+                        
+                        # Continue extending the colored overlay until we hit a wall or boundary
+                        while (0 <= current_x < self.grid_width and 
+                               0 <= current_y < self.grid_height and
+                               self.grid[current_y][current_x] == '.'):
+                            
+                            print(f"DEBUG: Drawing colored overlay at ({current_x}, {current_y})")
+                            
+                            x1 = current_x * self.cell_size
+                            y1 = current_y * self.cell_size
+                            x2 = x1 + self.cell_size
+                            y2 = y1 + self.cell_size
+                            
+                            # Draw colored overlay for open cells
+                            rect_id = self.create_rectangle(x1, y1, x2, y2, 
+                                                fill=color, outline=color, stipple='gray50')
+                            print(f"DEBUG: Created colored rectangle {rect_id} at ({x1}, {y1}) to ({x2}, {y2})")
+                            
+                            # Add direction arrow on the first open cell of the overlay
+                            if first_open_cell:
+                                # For start path, flip the arrow to point toward the start block
+                                if 'start' in label_prefix.lower():
+                                    # Flip the direction for start path arrows
+                                    flipped_directions = {
+                                        'top': '↓',    # Arrow points down toward start
+                                        'bottom': '↑', # Arrow points up toward start  
+                                        'left': '→',   # Arrow points right toward start
+                                        'right': '←'   # Arrow points left toward start
+                                    }
+                                    symbol = flipped_directions[direction]
+                                else:
+                                    # For finish path, keep original direction (pointing away)
+                                    symbol = direction_symbols[direction]
+                                
+                                text_id = self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
+                                               text=symbol, fill='black', font=('Arial', 12, 'bold'))
+                                print(f"DEBUG: Created text {text_id} with symbol '{symbol}'")
+                                first_open_cell = False
+                            
+                            # Move to next position in the direction
+                            current_x += dx
+                            current_y += dy
+                        
+                        print(f"DEBUG: Overlay ended at ({current_x}, {current_y})")
+                    else:
+                        print(f"DEBUG: No open cell found in direction {direction} from ({search_x}, {search_y})")
+                        
+                    if overlay_cells_drawn > 0:
+                        print(f"DEBUG: Drew {overlay_cells_drawn} wall overlay cells")
                     
     def get_map_data(self):
         """Get the grid data as a list of strings"""
         return [''.join(row) for row in self.grid]
+    
+    def get_content_bounds(self):
+        """
+        Find the bounds of all meaningful content in the grid based on 2x2 chunks
+        If a 2x2 chunk contains any non-dot content, include that chunk
+        Returns (min_x, min_y, max_x, max_y) or None if no content found
+        """
+        # Find which 2x2 chunks contain content
+        chunk_width = self.grid_width // 2
+        chunk_height = self.grid_height // 2
+        
+        min_chunk_x = chunk_width
+        min_chunk_y = chunk_height
+        max_chunk_x = -1
+        max_chunk_y = -1
+        
+        content_found = False
+        
+        # Check each 2x2 chunk
+        for chunk_y in range(chunk_height):
+            for chunk_x in range(chunk_width):
+                # Check if this 2x2 chunk has any non-dot content
+                chunk_has_content = False
+                
+                for dy in range(2):
+                    for dx in range(2):
+                        grid_x = chunk_x * 2 + dx
+                        grid_y = chunk_y * 2 + dy
+                        
+                        if (grid_x < self.grid_width and grid_y < self.grid_height and 
+                            self.grid[grid_y][grid_x] != '.'):
+                            chunk_has_content = True
+                            break
+                    
+                    if chunk_has_content:
+                        break
+                
+                # If this chunk has content, include it in bounds
+                if chunk_has_content:
+                    min_chunk_x = min(min_chunk_x, chunk_x)
+                    min_chunk_y = min(min_chunk_y, chunk_y)
+                    max_chunk_x = max(max_chunk_x, chunk_x)
+                    max_chunk_y = max(max_chunk_y, chunk_y)
+                    content_found = True
+        
+        # Return None if no content found
+        if not content_found:
+            return None
+        
+        # Convert chunk coordinates back to grid coordinates
+        min_x = min_chunk_x * 2
+        min_y = min_chunk_y * 2
+        max_x = (max_chunk_x + 1) * 2 - 1  # End of the chunk
+        max_y = (max_chunk_y + 1) * 2 - 1  # End of the chunk
+        
+        return (min_x, min_y, max_x, max_y)
+    
+    def get_cropped_map_data(self):
+        """
+        Get the grid data cropped to the minimum bounding box that contains all content,
+        aligned to 2x2 chunk boundaries
+        """
+        bounds = self.get_content_bounds()
+        
+        # If no content, return a minimal 2x2 grid
+        if bounds is None:
+            return ['..', '..'], 2, 2
+        
+        min_x, min_y, max_x, max_y = bounds
+        
+        # Align to 2x2 chunk boundaries (round down for min, round up for max)
+        crop_min_x = (min_x // 2) * 2
+        crop_min_y = (min_y // 2) * 2
+        crop_max_x = ((max_x + 1) // 2) * 2 - 1  # -1 because max is inclusive
+        crop_max_y = ((max_y + 1) // 2) * 2 - 1
+        
+        # Ensure we don't go outside the grid
+        crop_min_x = max(0, crop_min_x)
+        crop_min_y = max(0, crop_min_y)
+        crop_max_x = min(self.grid_width - 1, crop_max_x)
+        crop_max_y = min(self.grid_height - 1, crop_max_y)
+        
+        # Calculate cropped dimensions
+        crop_width = crop_max_x - crop_min_x + 1
+        crop_height = crop_max_y - crop_min_y + 1
+        
+        # Extract the cropped data
+        cropped_data = []
+        for y in range(crop_min_y, crop_min_y + crop_height):
+            row = ''.join(self.grid[y][crop_min_x:crop_min_x + crop_width])
+            cropped_data.append(row)
+        
+        return cropped_data, crop_width, crop_height
 
     def save_state(self):
-        """Save current grid state to history"""
+        """Save current grid state and asterisk path state to history"""
         # Create a deep copy of the current grid
-        current_state = [row[:] for row in self.grid]
+        current_grid = [row[:] for row in self.grid]
+        
+        # Save asterisk-related state
+        asterisk_state = {
+            'cursor': self.asterisk_cursor,
+            'path': self.asterisk_path[:],  # Copy the list
+            'directions': {k: v[:] for k, v in self.asterisk_directions.items()},  # Deep copy
+            'direction_sequence': self.asterisk_direction_sequence[:],  # Copy the list
+            'drawing_active': self.asterisk_drawing_active,
+            'last_direction': self.asterisk_last_direction
+        }
+        
+        # Save path marks state
+        path_marks_state = {
+            'start_path_marks': self.start_path_marks[:],  # Copy the list
+            'finish_path_marks': self.finish_path_marks[:]  # Copy the list
+        }
+        
+        # Combine grid, asterisk, and path marks state
+        current_state = {
+            'grid': current_grid,
+            'asterisk': asterisk_state,
+            'path_marks': path_marks_state
+        }
         
         # Remove any states after current index (for redo after undo)
         if self.history_index < len(self.history) - 1:
@@ -951,7 +1386,29 @@ class GridCanvas(tk.Canvas):
         """Undo the last action"""
         if self.history_index > 0:
             self.history_index -= 1
-            self.grid = [row[:] for row in self.history[self.history_index]]
+            state = self.history[self.history_index]
+            
+            # Handle both old format (just grid) and new format (grid + asterisk + path_marks)
+            if isinstance(state, dict):
+                # New format with asterisk and path marks state
+                self.grid = [row[:] for row in state['grid']]
+                self.restore_asterisk_state(state['asterisk'])
+                # Restore path marks if present (for backward compatibility)
+                if 'path_marks' in state:
+                    self.restore_path_marks_state(state['path_marks'])
+                else:
+                    # Reset path marks for older saves
+                    self.start_path_marks = []
+                    self.finish_path_marks = []
+            else:
+                # Old format (just grid) - for backward compatibility
+                self.grid = [row[:] for row in state]
+                # Reset all non-grid state for old saves
+                self.asterisk_cursor = None
+                self.asterisk_drawing_active = False
+                self.start_path_marks = []
+                self.finish_path_marks = []
+            
             self.update_canvas()
             return True
         return False
@@ -960,10 +1417,54 @@ class GridCanvas(tk.Canvas):
         """Redo the next action"""
         if self.history_index < len(self.history) - 1:
             self.history_index += 1
-            self.grid = [row[:] for row in self.history[self.history_index]]
+            state = self.history[self.history_index]
+            
+            # Handle both old format (just grid) and new format (grid + asterisk + path_marks)
+            if isinstance(state, dict):
+                # New format with asterisk and path marks state
+                self.grid = [row[:] for row in state['grid']]
+                self.restore_asterisk_state(state['asterisk'])
+                # Restore path marks if present (for backward compatibility)
+                if 'path_marks' in state:
+                    self.restore_path_marks_state(state['path_marks'])
+                else:
+                    # Reset path marks for older saves
+                    self.start_path_marks = []
+                    self.finish_path_marks = []
+            else:
+                # Old format (just grid) - for backward compatibility
+                self.grid = [row[:] for row in state]
+                # Reset all non-grid state for old saves
+                self.asterisk_cursor = None
+                self.asterisk_drawing_active = False
+                self.start_path_marks = []
+                self.finish_path_marks = []
+            
             self.update_canvas()
             return True
         return False
+    
+    def restore_asterisk_state(self, asterisk_state):
+        """Restore asterisk-related state from history"""
+        self.asterisk_cursor = asterisk_state['cursor']
+        self.asterisk_path = asterisk_state['path'][:]  # Copy the list
+        self.asterisk_directions = {k: v[:] for k, v in asterisk_state['directions'].items()}  # Deep copy
+        self.asterisk_direction_sequence = asterisk_state['direction_sequence'][:]  # Copy the list
+        self.asterisk_drawing_active = asterisk_state['drawing_active']
+        self.asterisk_last_direction = asterisk_state['last_direction']
+        
+        # Update UI state if needed
+        if self.map_drawer and self.asterisk_drawing_active:
+            # Ensure canvas can receive keyboard focus for asterisk drawing
+            self.focus_set()
+            # Update status to reflect restored state
+            if self.asterisk_cursor:
+                self.map_drawer.status_var.set("Asterisk drawing mode restored. Use arrow keys to continue, ESC to finish.")
+    
+    def restore_path_marks_state(self, path_marks_state):
+        """Restore path marks state from history"""
+        self.start_path_marks = path_marks_state['start_path_marks'][:]  # Copy the list
+        self.finish_path_marks = path_marks_state['finish_path_marks'][:]  # Copy the list
     
     def can_undo(self):
         """Check if undo is possible"""
@@ -1185,6 +1686,14 @@ class MapDrawer:
         self.asterisk_btn.pack(fill=tk.X, padx=5, pady=2)
         self.asterisk_btn.configure(command=lambda: self.set_drawing_mode('asterisk'))
         
+        self.start_path_btn = ttk.Button(mode_frame, text="Start Path - Mark Entry Points [Q]")
+        self.start_path_btn.pack(fill=tk.X, padx=5, pady=2)
+        self.start_path_btn.configure(command=lambda: self.set_drawing_mode('start_path'))
+        
+        self.finish_path_btn = ttk.Button(mode_frame, text="Finish Path - Mark Exit Points [T]")
+        self.finish_path_btn.pack(fill=tk.X, padx=5, pady=2)
+        self.finish_path_btn.configure(command=lambda: self.set_drawing_mode('finish_path'))
+        
         self.erase_btn = ttk.Button(mode_frame, text="Erase (.) - Line Erasing [E]")
         self.erase_btn.pack(fill=tk.X, padx=5, pady=2)
         self.erase_btn.configure(command=lambda: self.set_drawing_mode('erase'))
@@ -1376,12 +1885,14 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
             'start': ('lightgreen', 'Start mode (S) - Click to place 2x2 start block'),
             'finish': ('lightcoral', 'Finish mode (F) - Click to place 2x2 finish block'),
             'asterisk': ('mediumpurple', 'Asterisk mode (A) - Each arrow key draws a line until hitting walls'),
+            'start_path': ('lightgreen', 'Start Path mode (Q) - Click adjacent to Start block to mark entry points'),
+            'finish_path': ('lightcoral', 'Finish Path mode (T) - Click adjacent to Finish block to mark exit points'),
             'erase': ('lightgray', 'Erase mode (E) - Click and drag to erase lines'),
             'select': ('lightyellow', 'Select mode (R) - Click and drag to select rectangle')
         }
         
         # Reset all buttons
-        for btn in [self.wall_btn, self.start_btn, self.finish_btn, self.asterisk_btn, self.erase_btn, self.select_btn]:
+        for btn in [self.wall_btn, self.start_btn, self.finish_btn, self.asterisk_btn, self.start_path_btn, self.finish_path_btn, self.erase_btn, self.select_btn]:
             btn.configure(style='TButton')
         
         # Highlight active button (using background color - limited in ttk)
@@ -1416,17 +1927,17 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
         
         if filename:
             try:
-                map_data = self.canvas.get_map_data()
+                # Get cropped map data that only includes content areas
+                cropped_data, crop_width, crop_height = self.canvas.get_cropped_map_data()
+                
                 with open(filename, 'w') as f:
-                    # Write grid dimensions
-                    f.write(f"# Grid dimensions: {self.canvas.grid_width}x{self.canvas.grid_height}\n")
+                    # Write grid dimensions (using cropped dimensions)
+                    f.write(f"# Grid dimensions: {crop_width}x{crop_height}\n")
                     f.write(f"# Symbols: 1-9 = Oriented Walls, S = Start, F = Finish, * = Asterisk, , = Accessible, . = Empty\n")
-                    f.write(f"# Start and Finish are 2x2 blocks\n")
-                    f.write(f"# Grid uses multiples of 2 for dimensions\n")
                     f.write("\n")
                     
-                    # Write the grid
-                    for row in map_data:
+                    # Write the cropped grid
+                    for row in cropped_data:
                         f.write(row + "\n")
                     
                     # Write direction data if asterisk path exists
@@ -1435,9 +1946,25 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
                         # Compress the direction sequence to remove consecutive duplicates
                         compressed_directions = self.canvas.compress_direction_sequence(self.canvas.asterisk_direction_sequence)
                         f.write(f"direction : {','.join(compressed_directions)}\n")
+                    
+                    # Write Start and Finish coordinates
+                    start_pos = self.canvas.find_block_position('S')
+                    finish_pos = self.canvas.find_block_position('F')
+                    
+                    if start_pos:
+                        f.write(f"start : {start_pos[0]},{start_pos[1]}\n")
+                    if finish_pos:
+                        f.write(f"finish : {finish_pos[0]},{finish_pos[1]}\n")
+                    
+                    # Write possible entry/exit directions
+                    start_entry, finish_exit = self.canvas.get_possible_entry_exit_directions()
+                    if start_entry:
+                        f.write(f"Possible Start Entry : {','.join(start_entry)}\n")
+                    if finish_exit:
+                        f.write(f"Possible Finish Exit : {','.join(finish_exit)}\n")
                 
-                messagebox.showinfo("Success", f"Map saved to {filename}")
-                self.status_var.set(f"Map saved to {os.path.basename(filename)}")
+                messagebox.showinfo("Success", f"Map saved to {filename} (auto-cropped to {crop_width}x{crop_height})")
+                self.status_var.set(f"Map saved to {os.path.basename(filename)} (cropped to {crop_width}x{crop_height})")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save map: {str(e)}")
     
@@ -1452,14 +1979,26 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
                 with open(filename, 'r') as f:
                     lines = f.readlines()
                 
-                # Separate map data from direction data
+                # Separate map data from direction data and coordinates
                 map_lines = []
                 direction_line = None
+                start_line = None
+                finish_line = None
+                start_entry_line = None
+                finish_exit_line = None
                 
                 for line in lines:
                     line = line.strip()
                     if line.startswith('direction :'):
                         direction_line = line
+                    elif line.startswith('start :'):
+                        start_line = line
+                    elif line.startswith('finish :'):
+                        finish_line = line
+                    elif line.startswith('Possible Start Entry :'):
+                        start_entry_line = line
+                    elif line.startswith('Possible Finish Exit :'):
+                        finish_exit_line = line
                     elif line and not line.startswith('#'):
                         map_lines.append(line)
                 
@@ -1473,7 +2012,7 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
                 
                 # Ensure even dimensions
                 if width % 2 != 0:
-                    width += 1
+                    width +=  1
                 if height % 2 != 0:
                     height += 1
                 
@@ -1486,6 +2025,10 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
                 
                 # Clear existing asterisk data
                 self.canvas.clear_asterisk_path()
+                
+                # Clear existing path marks
+                self.canvas.start_path_marks = []
+                self.canvas.finish_path_marks = []
                 
                 # Load the map data
                 asterisk_positions = []
@@ -1527,7 +2070,7 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
                             'down': (0, 2),
                             'left': (-2, 0),
                             'right': (2, 0)
-                        }
+                        };
                         
                         for direction in directions_list:
                             if direction in direction_vectors:
@@ -1555,6 +2098,60 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
                         self.canvas.asterisk_path = path
                         self.canvas.asterisk_directions = directions_at_pos
                 
+                # Process start and finish coordinates if provided
+                if start_line:
+                    try:
+                        coords_part = start_line.split(':', 1)[1].strip()
+                        start_x, start_y = map(int, coords_part.split(','))
+                        self.status_var.set(f"Start coordinates loaded: ({start_x}, {start_y})")
+                    except ValueError:
+                        self.status_var.set("Warning: Invalid start coordinates format")
+                
+                if finish_line:
+                    try:
+                        coords_part = finish_line.split(':', 1)[1].strip()
+                        finish_x, finish_y = map(int, coords_part.split(','))
+                        self.status_var.set(f"Finish coordinates loaded: ({finish_x}, {finish_y})")
+                    except ValueError:
+                        self.status_var.set("Warning: Invalid finish coordinates format")
+                
+                # Process start and finish entry/exit directions
+                if start_entry_line:
+                    try:
+                        directions_part = start_entry_line.split(':', 1)[1].strip()
+                        entry_directions = [d.strip() for d in directions_part.split(',') if d.strip()]
+                        
+                        # Convert entry directions back to mark directions (opposite)
+                        direction_opposites = {
+                            'down': 'top',
+                            'up': 'bottom', 
+                            'right': 'left',
+                            'left': 'right'
+                        }
+                        
+                        self.canvas.start_path_marks = [direction_opposites.get(d, d) for d in entry_directions if d in direction_opposites]
+                        print(f"DEBUG: Loaded start path marks: {self.canvas.start_path_marks}")  # Debug
+                    except Exception as e:
+                        print(f"Error parsing start entry directions: {e}")
+                
+                if finish_exit_line:
+                    try:
+                        directions_part = finish_exit_line.split(':', 1)[1].strip()
+                        exit_directions = [d.strip() for d in directions_part.split(',') if d.strip()]
+                        
+                        # Convert exit directions back to mark directions (opposite)
+                        direction_opposites = {
+                            'down': 'top',
+                            'up': 'bottom', 
+                            'right': 'left',
+                            'left': 'right'
+                        }
+                        
+                        self.canvas.finish_path_marks = [direction_opposites.get(d, d) for d in exit_directions if d in direction_opposites]
+                        print(f"DEBUG: Loaded finish path marks: {self.canvas.finish_path_marks}")  # Debug
+                    except Exception as e:
+                        print(f"Error parsing finish exit directions: {e}")
+                
                 self.canvas.update_canvas()
                 messagebox.showinfo("Success", f"Map loaded from {filename}")
                 self.status_var.set(f"Map loaded from {os.path.basename(filename)}")
@@ -1572,6 +2169,10 @@ The blue guide lines help you see where 2x2 blocks will be placed."""
         self.root.bind("<KeyPress-F>", lambda e: self.set_drawing_mode('finish'))
         self.root.bind("<KeyPress-a>", lambda e: self.set_drawing_mode('asterisk'))
         self.root.bind("<KeyPress-A>", lambda e: self.set_drawing_mode('asterisk'))
+        self.root.bind("<KeyPress-q>", lambda e: self.set_drawing_mode('start_path'))
+        self.root.bind("<KeyPress-Q>", lambda e: self.set_drawing_mode('start_path'))
+        self.root.bind("<KeyPress-t>", lambda e: self.set_drawing_mode('finish_path'))
+        self.root.bind("<KeyPress-T>", lambda e: self.set_drawing_mode('finish_path'))
         self.root.bind("<KeyPress-e>", lambda e: self.set_drawing_mode('erase'))
         self.root.bind("<KeyPress-E>", lambda e: self.set_drawing_mode('erase'))
         self.root.bind("<KeyPress-r>", lambda e: self.set_drawing_mode('select'))
