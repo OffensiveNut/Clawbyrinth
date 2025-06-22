@@ -67,6 +67,11 @@ class GridCanvas(tk.Canvas):
         self.bind("<B1-Motion>", self.on_mouse_drag)
         self.bind("<ButtonRelease-1>", self.on_mouse_release)
         
+        # Right-click for eraser tool
+        self.bind("<Button-3>", self.on_right_mouse_press)
+        self.bind("<B3-Motion>", self.on_right_mouse_drag)
+        self.bind("<ButtonRelease-3>", self.on_right_mouse_release)
+        
         # Bind keyboard events for asterisk drawing
         self.bind("<Key>", self.on_key_press)
         self.focus_set()  # Make canvas focusable
@@ -882,13 +887,13 @@ class GridCanvas(tk.Canvas):
                 self.mark_path_direction(grid_x, grid_y, 'finish_path')
                 return  # Don't set is_drawing for path marking
             elif self.drawing_mode == 'spike1':
-                self.spike_grid[grid_y][grid_x] = '!'
-                self.grid[grid_y][grid_x] = '#'
+                self.spike_grid[grid_x][grid_y] = '!'
+                self.grid[grid_x][grid_y] = '#'
                 # Update wall types
                 self.update_wall_types_in_area(grid_x, grid_y, grid_x, grid_y)
             elif self.drawing_mode == 'spike2':
-                self.spike_grid[grid_y][grid_x] = '?'
-                self.grid[grid_y][grid_x] = '#'
+                self.spike_grid[grid_x][grid_y] = '?'
+                self.grid[grid_x][grid_y] = '#'
                 # Update wall types
                 self.update_wall_types_in_area(grid_x, grid_y, grid_x, grid_y)
             elif self.drawing_mode == 'erase':
@@ -1009,6 +1014,83 @@ class GridCanvas(tk.Canvas):
                 # Update selection buttons if in select mode
                 if self.drawing_mode == 'select':
                     self.map_drawer.update_selection_buttons()
+            
+        self.is_drawing = False
+        self.last_pos = None
+        # Reset axis tracking when mouse is released
+        self.drawing_axis = None
+        self.axis_start_pos = None
+        
+    def on_right_mouse_press(self, event):
+        """Right-click always acts as eraser tool"""
+        canvas_x = self.canvasx(event.x)
+        canvas_y = self.canvasy(event.y)
+        grid_x, grid_y = self.get_grid_pos(canvas_x, canvas_y)
+        
+        if grid_x is not None and grid_y is not None:
+            self.is_drawing = True
+            self.last_pos = (grid_x, grid_y)
+            
+            # Reset axis tracking for new drawing session
+            self.drawing_axis = None
+            self.axis_start_pos = (grid_x, grid_y)
+            
+            # Always erase with right-click
+            # Check if we're erasing a 2x2 block first
+            if not self.erase_2x2_block_if_needed(grid_x, grid_y):
+                # If not a 2x2 block, erase single cell
+                self.grid[grid_y][grid_x] = '.'
+                self.spike_grid[grid_y][grid_x] = '.'  # Also erase spike
+                # Update surrounding walls when erasing
+                self.update_wall_types_in_area(grid_x, grid_y, grid_x, grid_y)
+            
+            self.update_canvas()
+            
+    def on_right_mouse_drag(self, event):
+        """Right-click drag always erases"""
+        if self.is_drawing:
+            canvas_x = self.canvasx(event.x)
+            canvas_y = self.canvasy(event.y)
+            grid_x, grid_y = self.get_grid_pos(canvas_x, canvas_y)
+            
+            if grid_x is not None and grid_y is not None:
+                if self.last_pos:
+                    # Implement axis snapping for eraser (same logic as normal eraser)
+                    if self.axis_start_pos:
+                        start_x, start_y = self.axis_start_pos
+                        
+                        # Determine axis if not already set
+                        if self.drawing_axis is None:
+                            dx = abs(grid_x - start_x)
+                            dy = abs(grid_y - start_y)
+                            
+                            # Only set axis if we've moved at least one cell
+                            if dx > 0 or dy > 0:
+                                if dx >= dy:
+                                    self.drawing_axis = 'horizontal'
+                                else:
+                                    self.drawing_axis = 'vertical'
+                        
+                        # Snap to axis
+                        if self.drawing_axis == 'horizontal':
+                            grid_y = start_y  # Lock Y coordinate
+                        elif self.drawing_axis == 'vertical':
+                            grid_x = start_x  # Lock X coordinate
+                    
+                    # Draw erase line from last position to current position
+                    self.draw_erase_line(self.last_pos[0], self.last_pos[1], grid_x, grid_y)
+                    self.last_pos = (grid_x, grid_y)
+                
+                self.update_canvas()
+                
+    def on_right_mouse_release(self, event):
+        """Right-click release - same as left-click release"""
+        if self.is_drawing:
+            # Save state after erasing action
+            self.save_state()
+            # Update undo/redo buttons in parent
+            if self.map_drawer:
+                self.map_drawer.update_undo_redo_buttons()
             
         self.is_drawing = False
         self.last_pos = None
