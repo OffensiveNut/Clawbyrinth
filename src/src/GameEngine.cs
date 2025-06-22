@@ -32,7 +32,7 @@ namespace Clawbyrinth
 
         private void InitializeGame()
         {
-            // Create Level1 using the new factory system
+            // Load Level1 with the new oriented wall system
             level = LevelFactory.CreateLevel("1", windowWidth, windowHeight);
             
             // Create player at starting position

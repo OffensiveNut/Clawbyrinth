@@ -81,6 +81,19 @@ namespace Clawbyrinth.Levels
         /// </summary>
         public const char FINISH_CHAR = 'F';
         
+        // === ORIENTED WALL CHARACTERS ===
+        /// <summary>
+        /// Oriented wall system - each number represents a specific wall type
+        /// </summary>
+        public const char LOWER_LEFT_CORNER = '1';     // Lower left corner
+        public const char LOWER_WALL = '2';            // Lower/bottom wall
+        public const char LOWER_RIGHT_CORNER = '3';    // Lower right corner
+        public const char LEFT_WALL = '4';             // Left wall
+        public const char RIGHT_WALL = '6';            // Right wall
+        public const char UPPER_LEFT_CORNER = '7';     // Upper left corner
+        public const char UPPER_WALL = '8';            // Upper/top wall
+        public const char UPPER_RIGHT_CORNER = '9';    // Upper right corner
+        
         /// <summary>
         /// Character representing a portal entrance in level blueprints.
         /// </summary>
@@ -205,7 +218,17 @@ namespace Clawbyrinth.Levels
         /// <returns>True if the character represents a solid wall</returns>
         public static bool IsWallCharacter(char c)
         {
-            return c == WALL_CHAR;
+            return c == WALL_CHAR || IsOrientedWallCharacter(c);
+        }
+        
+        /// <summary>
+        /// Checks if a character represents an oriented wall (1-9).
+        /// </summary>
+        /// <param name="c">Character from level blueprint</param>
+        /// <returns>True if the character represents an oriented wall</returns>
+        public static bool IsOrientedWallCharacter(char c)
+        {
+            return c >= '1' && c <= '9' && c != '5'; // 1-9 except 5 (no center wall type)
         }
         
         /// <summary>
@@ -238,10 +261,45 @@ namespace Clawbyrinth.Levels
             return c switch
             {
                 WALL_CHAR => WALL,
+                LOWER_LEFT_CORNER => WALL,      // '1'
+                LOWER_WALL => WALL,             // '2'
+                LOWER_RIGHT_CORNER => WALL,     // '3'
+                LEFT_WALL => WALL,              // '4'
+                RIGHT_WALL => WALL,             // '6'
+                UPPER_LEFT_CORNER => WALL,      // '7'
+                UPPER_WALL => WALL,             // '8'
+                UPPER_RIGHT_CORNER => WALL,     // '9'
                 SPIKES_CHAR => TRAP,
                 CANNON_CHAR => TRAP,
                 PORTAL_CHAR => PORTAL,
                 _ => EMPTY // Default to empty for START_CHAR, FINISH_CHAR, EMPTY_CHAR, etc.
+            };
+        }
+        
+        /// <summary>
+        /// Converts an oriented wall character directly to its corresponding WallType.
+        /// Uses both variants (1 and 2) for visual variety based on position.
+        /// </summary>
+        /// <param name="c">Character from level blueprint (1-9)</param>
+        /// <param name="x">X position for variant selection</param>
+        /// <param name="y">Y position for variant selection</param>
+        /// <returns>WallType enum value</returns>
+        public static WallType CharacterToWallType(char c, int x, int y)
+        {
+            // Use position to determine which variant to use for visual variety
+            bool useVariant2 = (x + y) % 2 == 1;
+            
+            return c switch
+            {
+                LOWER_LEFT_CORNER => WallType.CornerLowerLeft,      // '1' - corners only have one type
+                LOWER_WALL => useVariant2 ? WallType.Lower2 : WallType.Lower1,         // '2' - alternate variants
+                LOWER_RIGHT_CORNER => WallType.CornerLowerRight,   // '3' - corners only have one type
+                LEFT_WALL => useVariant2 ? WallType.Left2 : WallType.Left1,           // '4' - alternate variants
+                RIGHT_WALL => useVariant2 ? WallType.Right2 : WallType.Right1,         // '6' - alternate variants
+                UPPER_LEFT_CORNER => WallType.CornerUpperLeft,     // '7' - corners only have one type
+                UPPER_WALL => useVariant2 ? WallType.Upper2 : WallType.Upper1,         // '8' - alternate variants
+                UPPER_RIGHT_CORNER => WallType.CornerUpperRight,   // '9' - corners only have one type
+                _ => WallType.Upper1 // Default fallback
             };
         }
         
