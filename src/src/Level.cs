@@ -817,6 +817,29 @@ namespace Clawbyrinth
         }
 
         /// <summary>
+        /// Checks if the player has reached the finish position.
+        /// </summary>
+        /// <param name="playerX">Player X position in pixels</param>
+        /// <param name="playerY">Player Y position in pixels</param>
+        /// <param name="playerWidth">Player width in pixels</param>
+        /// <param name="playerHeight">Player height in pixels</param>
+        /// <returns>True if player has reached the finish</returns>
+        public virtual bool IsLevelComplete(float playerX, float playerY, int playerWidth, int playerHeight)
+        {
+            // Default implementation - no finish position in base Level class
+            return false;
+        }
+        
+        /// <summary>
+        /// Gets the finish position for this level.
+        /// </summary>
+        /// <returns>Finish position in grid coordinates, or Point.Empty if no finish</returns>
+        public virtual Point GetFinishPosition()
+        {
+            return Point.Empty; // Default - no finish position
+        }
+
+        /// <summary>
         /// Checks if the player is overlapping any dots and collects them.
         /// When a player touches any part of a dot area, the entire area is collected.
         /// </summary>
@@ -916,6 +939,46 @@ namespace Clawbyrinth
             return dotsCollectedCount;
         }
 
+        /// <summary>
+        /// Checks if the player is overlapping any coins and collects them.
+        /// When a player touches any part of a coin area, the entire area is collected.
+        /// </summary>
+        /// <param name="playerX">Player X position in pixels</param>
+        /// <param name="playerY">Player Y position in pixels</param>
+        /// <param name="playerWidth">Player width in pixels</param>
+        /// <param name="playerHeight">Player height in pixels</param>
+        /// <returns>Number of coin areas collected</returns>
+        public int CollectCoins(float playerX, float playerY, int playerWidth, int playerHeight)
+        {
+            int coinsCollectedCount = 0;
+            
+            // Calculate which grid cells the player overlaps
+            int startGridX = Math.Max(0, Definition.PixelToGrid((int)playerX));
+            int endGridX = Math.Min(gridWidth - 1, Definition.PixelToGrid((int)(playerX + playerWidth - 1)));
+            int startGridY = Math.Max(0, Definition.PixelToGrid((int)playerY));
+            int endGridY = Math.Min(gridHeight - 1, Definition.PixelToGrid((int)(playerY + playerHeight - 1)));
+            
+            // Check for coins that the player is touching
+            for (int gridX = startGridX; gridX <= endGridX; gridX++)
+            {
+                for (int gridY = startGridY; gridY <= endGridY; gridY++)
+                {
+                    // Check if there's a coin at this position and it hasn't been collected
+                    if (gridX < gridWidth - 1 && gridY < gridHeight - 1 &&
+                        coinPositions[gridX, gridY] && !coinsCollected[gridX, gridY])
+                    {
+                        // Collect the coin
+                        coinsCollected[gridX, gridY] = true;
+                        coinsCollectedCount++;
+                        
+                        System.Diagnostics.Debug.WriteLine($"Coin collected at grid position ({gridX}, {gridY})");
+                    }
+                }
+            }
+            
+            return coinsCollectedCount;
+        }
+
         private void RenderDots(Graphics g)
         {
             if (dotNormalTexture == null || dotWhiteTexture == null) return;
@@ -1010,77 +1073,6 @@ namespace Clawbyrinth
         }
 
         /// <summary>
-        /// Checks if the player is overlapping any coins and collects them.
-        /// </summary>
-        /// <param name="playerX">Player X position in pixels</param>
-        /// <param name="playerY">Player Y position in pixels</param>
-        /// <param name="playerWidth">Player width in pixels</param>
-        /// <param name="playerHeight">Player height in pixels</param>
-        /// <returns>Number of coins collected</returns>
-        public int CollectCoins(float playerX, float playerY, int playerWidth, int playerHeight)
-        {
-            int coinsCollectedCount = 0;
-            
-            // Calculate which grid cells the player overlaps
-            int startGridX = Math.Max(0, Definition.PixelToGrid((int)playerX));
-            int endGridX = Math.Min(gridWidth - 1, Definition.PixelToGrid((int)(playerX + playerWidth - 1)));
-            int startGridY = Math.Max(0, Definition.PixelToGrid((int)playerY));
-            int endGridY = Math.Min(gridHeight - 1, Definition.PixelToGrid((int)(playerY + playerHeight - 1)));
-            
-            // Check for coin positions that the player is touching
-            for (int gridX = startGridX; gridX <= endGridX; gridX++)
-            {
-                for (int gridY = startGridY; gridY <= endGridY; gridY++)
-                {
-                    // Check if there's an uncollected coin at this position
-                    if (coinPositions[gridX, gridY] && !coinsCollected[gridX, gridY])
-                    {
-                        // Collect the coin
-                        coinsCollected[gridX, gridY] = true;
-                        coinsCollectedCount++;
-                    }
-                }
-            }
-            
-            return coinsCollectedCount;
-        }
-
-        private void RenderPortals(Graphics g)
-        {
-            if (portalTexture == null) return;
-            
-            // Calculate which frame to show based on time
-            double timeElapsed = (DateTime.Now - lastDotAnimationTime).TotalSeconds;
-            int currentFrame = (int)(timeElapsed / Definition.PORTAL_ANIMATION_SPEED) % Definition.PORTAL_FRAME_COUNT;
-            
-            // Calculate source rectangle for current frame (14x14 from sprite sheet)
-            Rectangle sourceRect = new Rectangle(
-                currentFrame * Definition.PORTAL_FRAME_SIZE, 
-                0, 
-                Definition.PORTAL_FRAME_SIZE, 
-                Definition.PORTAL_FRAME_SIZE
-            );
-            
-            // Render each portal
-            foreach (Portal portal in portals)
-            {
-                // Calculate center of the 2x2 portal area (same as dots and coins)
-                int blockCenterX = Definition.GridToPixel(portal.Position.X) + Definition.GRID_SIZE;
-                int blockCenterY = Definition.GridToPixel(portal.Position.Y) + Definition.GRID_SIZE;
-                
-                // Center the 20x20 portal in the 24x24 block
-                int portalX = blockCenterX - 10; // 20/2 = 10
-                int portalY = blockCenterY - 10;
-                
-                // Create destination rectangle scaled from 14x14 to 20x20
-                Rectangle destRect = new Rectangle(portalX, portalY, Definition.PORTAL_RENDER_SIZE, Definition.PORTAL_RENDER_SIZE);
-                
-                // Draw the scaled portal frame
-                g.DrawImage(portalTexture, destRect, sourceRect, GraphicsUnit.Pixel);
-            }
-        }
-
-        /// <summary>
         /// Checks if the player is entering a portal and handles teleportation.
         /// Returns the new position if teleported, or the original position if not.
         /// </summary>
@@ -1161,6 +1153,31 @@ namespace Clawbyrinth
             dotWhiteTexture?.Dispose();
             coinNormalTexture?.Dispose();
             coinWhiteTexture?.Dispose();
+        }
+
+        private void RenderPortals(Graphics g)
+        {
+            if (portalTexture == null) return;
+            
+            // Render all portals
+            foreach (Portal portal in portals)
+            {
+                // Convert grid coordinates to pixel coordinates
+                int portalPixelX = Definition.GridToPixel(portal.Position.X);
+                int portalPixelY = Definition.GridToPixel(portal.Position.Y);
+                
+                // Calculate portal animation frame based on time
+                double timeElapsed = (DateTime.Now - portal.LastAnimationTime).TotalSeconds;
+                int frameIndex = (int)(timeElapsed * 8) % 4; // 8 fps animation, 4 frames
+                
+                // Assuming portal texture is a horizontal sprite sheet with 4 frames
+                Rectangle sourceRect = new Rectangle(frameIndex * Definition.GRID_SIZE * 2, 0, 
+                    Definition.GRID_SIZE * 2, Definition.GRID_SIZE * 2);
+                Rectangle destRect = new Rectangle(portalPixelX, portalPixelY, 
+                    Definition.GRID_SIZE * 2, Definition.GRID_SIZE * 2);
+                
+                g.DrawImage(portalTexture, destRect, sourceRect, GraphicsUnit.Pixel);
+            }
         }
     }
 }

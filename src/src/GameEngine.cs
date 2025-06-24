@@ -12,6 +12,7 @@ namespace Clawbyrinth
         private Player player = null!;
         private Level level = null!;
         private Camera camera = null!;
+        private LevelManager levelManager = null!;
         private int windowWidth;
         private int windowHeight;
         private Stopwatch gameStopwatch = null!;
@@ -32,8 +33,12 @@ namespace Clawbyrinth
 
         private void InitializeGame()
         {
-            // Load Level1 with the new oriented wall system
-            level = LevelFactory.CreateLevel("1", windowWidth, windowHeight);
+            // Initialize level manager and generate levels
+            levelManager = new LevelManager();
+            levelManager.GenerateAllLevels();
+            
+            // Load the first generated level
+            level = levelManager.GetCurrentLevel(windowWidth, windowHeight);
             
             // Create player at starting position
             Point startPos = level.GetStartPosition();
@@ -64,7 +69,14 @@ namespace Clawbyrinth
             int coinsCollected = level.CollectCoins(player.Position.X, player.Position.Y, 
                 Definition.PLAYER_COLLISION_SIZE, Definition.PLAYER_COLLISION_SIZE);
             
-            // TODO: Add coin collection feedback/scoring here
+            // TODO: Add dot/coin collection feedback/scoring here
+            
+            // Check for level completion
+            if (level.IsLevelComplete(player.Position.X, player.Position.Y, 
+                Definition.PLAYER_COLLISION_SIZE, Definition.PLAYER_COLLISION_SIZE))
+            {
+                AdvanceToNextLevel();
+            }
             
             // Update camera to follow player
             camera.FollowTarget(player.Position);
@@ -115,9 +127,8 @@ namespace Clawbyrinth
                     direction = Direction.Right;
                     break;
                 case Keys.R:
-                    // Switch back to random default level
-                    level = new Level(windowWidth, windowHeight);
-                    player = new Player(level.GetStartPosition().X, level.GetStartPosition().Y);
+                    // Restart current level
+                    RestartCurrentLevel();
                     break;
                 case Keys.Escape:
                     Application.Exit();
@@ -135,9 +146,8 @@ namespace Clawbyrinth
                     camera.SetZoom(1.0f);
                     break;
                 case Keys.L:
-                    // Switch to Level1 predefined map
-                    level = new Levels.Level1(windowWidth, windowHeight);
-                    player = new Player(level.GetStartPosition().X, level.GetStartPosition().Y);
+                    // Reset level progression
+                    ResetLevelProgression();
                     break;
             }
             
@@ -171,7 +181,82 @@ namespace Clawbyrinth
 
         private void RenderUI(Graphics g)
         {
+            // Display level information
+            string levelText = $"Level: {levelManager.CurrentLevelIndex + 1}/{levelManager.TotalLevels}";
+            using (Font font = new Font("Arial", 16, FontStyle.Bold))
+            using (Brush brush = new SolidBrush(Color.White))
+            {
+                g.DrawString(levelText, font, brush, 10, 10);
+            }
             
+            // Display controls
+            string controlsText = "R - Restart Level | L - Reset to Level 1 | ESC - Exit";
+            using (Font font = new Font("Arial", 10))
+            using (Brush brush = new SolidBrush(Color.LightGray))
+            {
+                g.DrawString(controlsText, font, brush, 10, windowHeight - 25);
+            }
+        }
+
+        private void AdvanceToNextLevel()
+        {
+            Console.WriteLine($"Level {levelManager.CurrentLevelIndex + 1} completed!");
+            
+            if (levelManager.AdvanceToNextLevel())
+            {
+                // Load the next level
+                level?.Dispose(); // Dispose current level
+                level = levelManager.GetCurrentLevel(windowWidth, windowHeight);
+                
+                // Reset player to new start position
+                Point startPos = level.GetStartPosition();
+                player = new Player(startPos.X, startPos.Y);
+                
+                // Reset camera
+                camera.SetPosition(player.Position);
+                
+                Console.WriteLine($"Started Level {levelManager.CurrentLevelIndex + 1}");
+            }
+            else
+            {
+                // All levels completed
+                Console.WriteLine("Congratulations! All levels completed!");
+                // TODO: Show victory screen or return to menu
+            }
+        }
+
+        private void RestartCurrentLevel()
+        {
+            // Restart the current level
+            level?.Dispose();
+            level = levelManager.GetCurrentLevel(windowWidth, windowHeight);
+            
+            // Reset player to start position
+            Point startPos = level.GetStartPosition();
+            player = new Player(startPos.X, startPos.Y);
+            
+            // Reset camera
+            camera.SetPosition(player.Position);
+            
+            Console.WriteLine($"Restarted Level {levelManager.CurrentLevelIndex + 1}");
+        }
+        
+        private void ResetLevelProgression()
+        {
+            // Reset to level 1
+            levelManager.ResetLevels();
+            
+            level?.Dispose();
+            level = levelManager.GetCurrentLevel(windowWidth, windowHeight);
+            
+            // Reset player to start position
+            Point startPos = level.GetStartPosition();
+            player = new Player(startPos.X, startPos.Y);
+            
+            // Reset camera
+            camera.SetPosition(player.Position);
+            
+            Console.WriteLine("Reset to Level 1");
         }
 
         // Dispose method to clean up resources

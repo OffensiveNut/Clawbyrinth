@@ -438,6 +438,24 @@ namespace Clawbyrinth.Levels
             try
             {
                 string filePath = Path.Combine(MAP_TEMPLATES_PATH, fileName);
+                return LoadLevelFromPath(filePath);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading level file {fileName}: {ex.Message}");
+                return new string[0];
+            }
+        }
+        
+        /// <summary>
+        /// Loads a level blueprint from a full file path.
+        /// </summary>
+        /// <param name="filePath">Full path to the level file</param>
+        /// <returns>Array of strings representing the level blueprint</returns>
+        public static string[] LoadLevelFromPath(string filePath)
+        {
+            try
+            {
                 if (File.Exists(filePath))
                 {
                     return File.ReadAllLines(filePath);
@@ -450,7 +468,7 @@ namespace Clawbyrinth.Levels
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error loading level file {fileName}: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Error loading level file {filePath}: {ex.Message}");
                 return new string[0];
             }
         }
@@ -612,7 +630,13 @@ namespace Clawbyrinth.Levels
         public FileLevelDefinition(string fileName)
         {
             _levelName = Path.GetFileNameWithoutExtension(fileName);
-            _blueprint = Definition.LoadLevelFromFile(fileName);
+            string filePath = GetLevelFilePath(fileName);
+            _blueprint = Definition.LoadLevelFromPath(filePath);
+        }
+        
+        protected virtual string GetLevelFilePath(string fileName)
+        {
+            return Path.Combine(Definition.MAP_TEMPLATES_PATH, fileName); // Default behavior - use MAP_TEMPLATES_PATH
         }
         
         public override string[] Blueprint => _blueprint;
