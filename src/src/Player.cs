@@ -250,19 +250,45 @@ namespace Clawbyrinth
                 gridX = Definition.PixelToGrid((int)targetX);
                 gridY = Definition.PixelToGrid((int)targetY);
                 
-                // Check if we can continue moving in the same direction
-                if (CanMoveInDirection(currentDirection, level))
+                // Check for portal teleportation
+                Point newPosition = level.CheckPortalTeleportation(gridX, gridY);
+                
+                if (newPosition.X != gridX || newPosition.Y != gridY)
                 {
-                    ContinueMoving();
+                    // Player was teleported through a portal
+                    gridX = newPosition.X;
+                    gridY = newPosition.Y;
+                    animatedX = Definition.GridToPixel(gridX);
+                    animatedY = Definition.GridToPixel(gridY);
+                    targetX = animatedX;
+                    targetY = animatedY;
+                    
+                    // Continue moving in the same direction after teleportation
+                    if (CanMoveInDirection(currentDirection, level))
+                    {
+                        ContinueMoving();
+                    }
+                    else
+                    {
+                        StopMoving();
+                    }
                 }
                 else
                 {
-                    // Hit a wall, stop moving
-                    StopMoving();
-                    lastWallDirection = currentDirection;
-                    SetAgainstWallRotation(currentDirection);
-                    currentState = PlayerState.AgainstWall;
-                    PlayAnimation(AnimationType.Idle);
+                    // Normal movement - check if we can continue moving in the same direction
+                    if (CanMoveInDirection(currentDirection, level))
+                    {
+                        ContinueMoving();
+                    }
+                    else
+                    {
+                        // Hit a wall, stop moving
+                        StopMoving();
+                        lastWallDirection = currentDirection;
+                        SetAgainstWallRotation(currentDirection);
+                        currentState = PlayerState.AgainstWall;
+                        PlayAnimation(AnimationType.Idle);
+                    }
                 }
             }
             else
@@ -272,6 +298,26 @@ namespace Clawbyrinth
                 float moveY = (dy / distance) * moveDistance;
                 animatedX += moveX;
                 animatedY += moveY;
+            }
+        }
+
+        /// <summary>
+        /// Converts a Direction enum to a Point vector for movement calculations.
+        /// </summary>
+        private Point GetMovementDirectionVector(Direction direction)
+        {
+            switch (direction)
+            {
+                case Direction.Up:
+                    return new Point(0, -1);
+                case Direction.Down:
+                    return new Point(0, 1);
+                case Direction.Left:
+                    return new Point(-1, 0);
+                case Direction.Right:
+                    return new Point(1, 0);
+                default:
+                    return new Point(0, 0);
             }
         }
 

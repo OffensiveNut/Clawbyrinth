@@ -6,6 +6,31 @@ using Clawbyrinth.Levels;
 
 namespace Clawbyrinth
 {
+    /// <summary>
+    /// Represents a portal in the game world.
+    /// </summary>
+    public class Portal
+    {
+        public Point Position { get; set; }  // Top-left corner of the 2x2 portal area
+        public Portal? PairedPortal { get; set; }  // The portal this one is paired with
+        public DateTime LastAnimationTime { get; set; }
+        
+        public Portal(Point position)
+        {
+            Position = position;
+            LastAnimationTime = DateTime.Now;
+        }
+        
+        /// <summary>
+        /// Checks if the given position is within this portal's 2x2 area.
+        /// </summary>
+        public bool ContainsPosition(int gridX, int gridY)
+        {
+            return gridX >= Position.X && gridX <= Position.X + 1 &&
+                   gridY >= Position.Y && gridY <= Position.Y + 1;
+        }
+    }
+
     public enum WallType
     {
         None = 0,
@@ -28,7 +53,6 @@ namespace Clawbyrinth
         // Use constants from Definition
         private const int GRID_SIZE = Definition.GRID_SIZE;
         private const int WALL_TILE_SIZE = Definition.WALL_TILE_SIZE;
-        private const int WALL_TILES_PER_GRID = GRID_SIZE / WALL_TILE_SIZE;
         private const int TILEMAP_TILE_SIZE = Definition.TILEMAP_TILE_SIZE;
         private const int WALL_COLLISION_SIZE = Definition.WALL_COLLISION_SIZE;
         protected const int WALL = Definition.WALL;
@@ -40,6 +64,7 @@ namespace Clawbyrinth
         protected bool[,] dotsCollected = null!; // Track which dots have been collected
         protected bool[,] coinPositions = null!; // Track where coins are placed
         protected bool[,] coinsCollected = null!; // Track which coins have been collected
+        protected List<Portal> portals = new List<Portal>(); // List of all portals in the level
         protected int gridWidth;
         protected int gridHeight;
         private int windowWidth;
@@ -49,7 +74,10 @@ namespace Clawbyrinth
         private Image? dotWhiteTexture;
         private Image? coinNormalTexture;
         private Image? coinWhiteTexture;
+        private Image? portalTexture;
         private DateTime lastDotAnimationTime;
+        private DateTime lastPortalTeleportTime = DateTime.MinValue;
+        private const double PORTAL_COOLDOWN_SECONDS = 0.5; // Half second cooldown
 
         public Level(int windowWidth, int windowHeight)
         {
@@ -62,6 +90,7 @@ namespace Clawbyrinth
             LoadWallTilemap();
             LoadDotTextures();
             LoadCoinTextures();
+            LoadPortalTexture();
             GenerateLevel();
         }
 
@@ -80,6 +109,7 @@ namespace Clawbyrinth
             LoadWallTilemap();
             LoadDotTextures();
             LoadCoinTextures();
+            LoadPortalTexture();
             GenerateLevelFromBlueprint(levelDefinition);
         }
 
@@ -123,6 +153,19 @@ namespace Clawbyrinth
                 System.Diagnostics.Debug.WriteLine($"Failed to load coin textures: {ex.Message}");
                 coinNormalTexture = null;
                 coinWhiteTexture = null;
+            }
+        }
+
+        private void LoadPortalTexture()
+        {
+            try
+            {
+                portalTexture = Image.FromFile(Definition.PORTAL_SPRITE_PATH);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load portal texture: {ex.Message}");
+                portalTexture = null;
             }
         }
 
@@ -238,6 +281,9 @@ namespace Clawbyrinth
             // Determine wall types after all walls are placed
             DetermineAllWallTypes();
             
+            // Generate portals from PPPP patterns
+            GeneratePortals();
+            
             // Spawn coins randomly on dot positions
             SpawnCoins();
         }
@@ -269,6 +315,53 @@ namespace Clawbyrinth
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// <summary>
+        /// Generates portals from PPPP patterns in the level blueprint.
+        /// Each 2x2 PPPP block becomes a single portal.
+        /// Portals are automatically paired in the order they appear.
+        /// </summary>
+        private void GeneratePortals()
+        {
+            portals.Clear();
+            bool[,] processed = new bool[gridWidth, gridHeight];
+            
+            // Find all 2x2 blocks of 'P' characters
+            for (int x = 0; x < gridWidth - 1; x++)
+            {
+                for (int y = 0; y < gridHeight - 1; y++)
+                {
+                    if (processed[x, y]) continue;
+                    
+                    // Check if we have a 2x2 block of portals
+                    if (originalCharacters[x, y] == Definition.PORTAL_CHAR &&
+                        originalCharacters[x + 1, y] == Definition.PORTAL_CHAR &&
+                        originalCharacters[x, y + 1] == Definition.PORTAL_CHAR &&
+                        originalCharacters[x + 1, y + 1] == Definition.PORTAL_CHAR)
+                    {
+                        // Create a new portal at this position
+                        Portal portal = new Portal(new Point(x, y));
+                        portals.Add(portal);
+                        
+                        // Mark this 2x2 area as processed
+                        processed[x, y] = true;
+                        processed[x + 1, y] = true;
+                        processed[x, y + 1] = true;
+                        processed[x + 1, y + 1] = true;
+                    }
+                }
+            }
+            
+            // Pair portals - connect them in pairs (0-1, 2-3, 4-5, etc.)
+            for (int i = 0; i < portals.Count - 1; i += 2)
+            {
+                portals[i].PairedPortal = portals[i + 1];
+                portals[i + 1].PairedPortal = portals[i];
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"Generated {portals.Count} portals, {portals.Count / 2} pairs");
         }
 
         /// <summary>
@@ -529,6 +622,9 @@ namespace Clawbyrinth
             
             // Render coins
             RenderCoins(g);
+            
+            // Render portals
+            RenderPortals(g);
         }
 
         private WallType GetTileVariation(WallType baseWallType, int tileX, int tileY)
@@ -947,6 +1043,88 @@ namespace Clawbyrinth
             }
             
             return coinsCollectedCount;
+        }
+
+        private void RenderPortals(Graphics g)
+        {
+            if (portalTexture == null) return;
+            
+            // Calculate which frame to show based on time
+            double timeElapsed = (DateTime.Now - lastDotAnimationTime).TotalSeconds;
+            int currentFrame = (int)(timeElapsed / Definition.PORTAL_ANIMATION_SPEED) % Definition.PORTAL_FRAME_COUNT;
+            
+            // Calculate source rectangle for current frame (14x14 from sprite sheet)
+            Rectangle sourceRect = new Rectangle(
+                currentFrame * Definition.PORTAL_FRAME_SIZE, 
+                0, 
+                Definition.PORTAL_FRAME_SIZE, 
+                Definition.PORTAL_FRAME_SIZE
+            );
+            
+            // Render each portal
+            foreach (Portal portal in portals)
+            {
+                // Calculate center of the 2x2 portal area (same as dots and coins)
+                int blockCenterX = Definition.GridToPixel(portal.Position.X) + Definition.GRID_SIZE;
+                int blockCenterY = Definition.GridToPixel(portal.Position.Y) + Definition.GRID_SIZE;
+                
+                // Center the 20x20 portal in the 24x24 block
+                int portalX = blockCenterX - 10; // 20/2 = 10
+                int portalY = blockCenterY - 10;
+                
+                // Create destination rectangle scaled from 14x14 to 20x20
+                Rectangle destRect = new Rectangle(portalX, portalY, Definition.PORTAL_RENDER_SIZE, Definition.PORTAL_RENDER_SIZE);
+                
+                // Draw the scaled portal frame
+                g.DrawImage(portalTexture, destRect, sourceRect, GraphicsUnit.Pixel);
+            }
+        }
+
+        /// <summary>
+        /// Checks if the player is entering a portal and handles teleportation.
+        /// Returns the new position if teleported, or the original position if not.
+        /// </summary>
+        /// <param name="gridX">Player's current grid X position</param>
+        /// <param name="gridY">Player's current grid Y position</param>
+        /// <param name="movementDirection">Direction the player is moving (for exit direction)</param>
+        /// <returns>New position after teleportation, or original position if no teleportation</returns>
+        public Point CheckPortalTeleportation(int gridX, int gridY)
+        {
+            // Check cooldown - prevent rapid re-teleportation
+            if ((DateTime.Now - lastPortalTeleportTime).TotalSeconds < PORTAL_COOLDOWN_SECONDS)
+            {
+                return new Point(gridX, gridY);
+            }
+            
+            // Check if player position overlaps with any portal
+            foreach (Portal portal in portals)
+            {
+                if (portal.ContainsPosition(gridX, gridY) && portal.PairedPortal != null)
+                {
+                    // Teleport directly to the exact center position of the paired portal
+                    Point teleportPosition = portal.PairedPortal.Position;
+                    
+                    // Update cooldown timer
+                    lastPortalTeleportTime = DateTime.Now;
+                    
+                    System.Diagnostics.Debug.WriteLine($"Portal teleportation: ({gridX},{gridY}) -> ({teleportPosition.X},{teleportPosition.Y})");
+                    return teleportPosition;
+                }
+            }
+            
+            // No portal teleportation occurred
+            return new Point(gridX, gridY);
+        }
+
+        /// <summary>
+        /// Checks if the given position is inside any portal area.
+        /// </summary>
+        /// <param name="gridX">Grid X position</param>
+        /// <param name="gridY">Grid Y position</param>
+        /// <returns>True if position is inside a portal</returns>
+        public bool IsInPortal(int gridX, int gridY)
+        {
+            return portals.Any(portal => portal.ContainsPosition(gridX, gridY));
         }
 
         private void RenderFallback(Graphics g)

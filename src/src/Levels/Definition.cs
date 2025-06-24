@@ -207,6 +207,48 @@ namespace Clawbyrinth.Levels
         /// </summary>
         public const string MAP_TEMPLATES_PATH = "src/Levels/Map Templates/";
 
+        // === PORTAL SYSTEM ===
+        /// <summary>
+        /// Portal sprite sheet dimensions (154x14 = 11 frames of 14x14 each).
+        /// </summary>
+        public const int PORTAL_SPRITE_WIDTH = 154;
+        public const int PORTAL_SPRITE_HEIGHT = 14;
+        public const int PORTAL_FRAME_SIZE = 14;  // Each frame is 14x14
+        public const int PORTAL_FRAME_COUNT = 11; // 154 / 14 = 11 frames
+        
+        /// <summary>
+        /// Portal rendering size (scaled to match grid size, closer to player size).
+        /// </summary>
+        public const int PORTAL_RENDER_SIZE = 20;
+        
+        /// <summary>
+        /// Portal animation speed (time per frame in seconds).
+        /// Synchronized to complete one full cycle (11 frames) in 0.8s to match 2 coin cycles.
+        /// </summary>
+        public const double PORTAL_ANIMATION_SPEED = 0.0727; // ~72.7ms per frame, 0.8s total cycle
+        
+        /// <summary>
+        /// Path to the portal sprite sheet.
+        /// </summary>
+        public const string PORTAL_SPRITE_PATH = "Assets/Mechanics/Portal/Portal_sheet.png";
+
+        // === ANIMATION TIMING ===
+        
+        /// <summary>
+        /// Base time for animations (in seconds).
+        /// </summary>
+        public const double ANIMATION_BASE_TIME = 0.2;
+        
+        /// <summary>
+        /// Time multiplier for faster animations (e.g., traps, doors).
+        /// </summary>
+        public const double ANIMATION_FAST_MULTIPLIER = 0.5;
+        
+        /// <summary>
+        /// Time multiplier for slower animations (e.g., certain effects).
+        /// </summary>
+        public const double ANIMATION_SLOW_MULTIPLIER = 2.0;
+
         // === UTILITY METHODS ===
         
         /// <summary>
