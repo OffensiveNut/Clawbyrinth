@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using Clawbyrinth.Levels;
 
 namespace Clawbyrinth
@@ -35,11 +37,15 @@ namespace Clawbyrinth
         protected int[,] levelData = null!;
         protected WallType[,] wallTypes = null!; // Store wall types for rendering
         protected char[,] originalCharacters = null!; // Store original characters for oriented walls
+        protected bool[,] dotsCollected = null!; // Track which dots have been collected
         protected int gridWidth;
         protected int gridHeight;
         private int windowWidth;
         private int windowHeight;
         private Image? wallTilemap;
+        private Image? dotNormalTexture;
+        private Image? dotWhiteTexture;
+        private DateTime lastDotAnimationTime;
 
         public Level(int windowWidth, int windowHeight)
         {
@@ -48,7 +54,9 @@ namespace Clawbyrinth
             this.gridWidth = windowWidth / GRID_SIZE;
             this.gridHeight = windowHeight / GRID_SIZE;
             
+            lastDotAnimationTime = DateTime.Now;
             LoadWallTilemap();
+            LoadDotTextures();
             GenerateLevel();
         }
 
@@ -63,7 +71,9 @@ namespace Clawbyrinth
             this.windowWidth = windowWidth;
             this.windowHeight = windowHeight;
             
+            lastDotAnimationTime = DateTime.Now;
             LoadWallTilemap();
+            LoadDotTextures();
             GenerateLevelFromBlueprint(levelDefinition);
         }
 
@@ -80,11 +90,27 @@ namespace Clawbyrinth
             }
         }
 
+        private void LoadDotTextures()
+        {
+            try
+            {
+                dotNormalTexture = Image.FromFile(Definition.DOT_NORMAL_PATH);
+                dotWhiteTexture = Image.FromFile(Definition.DOT_WHITE_PATH);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load dot textures: {ex.Message}");
+                dotNormalTexture = null;
+                dotWhiteTexture = null;
+            }
+        }
+
         protected virtual void GenerateLevel()
         {
             levelData = new int[gridWidth, gridHeight];
             wallTypes = new WallType[gridWidth, gridHeight];
             originalCharacters = new char[gridWidth, gridHeight];
+            dotsCollected = new bool[gridWidth, gridHeight];
             
             // Create border walls
             for (int x = 0; x < gridWidth; x++)
@@ -170,6 +196,7 @@ namespace Clawbyrinth
             levelData = new int[gridWidth, gridHeight];
             wallTypes = new WallType[gridWidth, gridHeight];
             originalCharacters = new char[gridWidth, gridHeight];
+            dotsCollected = new bool[gridWidth, gridHeight];
             
             // Parse blueprint into level data (1:1 mapping)
             for (int y = 0; y < gridHeight && y < blueprint.Length; y++)
@@ -413,6 +440,9 @@ namespace Clawbyrinth
                     }
                 }
             }
+            
+            // Render dots
+            RenderDots(g);
         }
 
         private WallType GetTileVariation(WallType baseWallType, int tileX, int tileY)
@@ -604,6 +634,155 @@ namespace Clawbyrinth
             return new Rectangle(tileX, tileY, Definition.TILEMAP_TILE_SIZE, Definition.TILEMAP_TILE_SIZE);
         }
 
+        /// <summary>
+        /// Checks if the player is overlapping any dots and collects them.
+        /// When a player touches any part of a dot area, the entire area is collected.
+        /// </summary>
+        /// <param name="playerX">Player X position in pixels</param>
+        /// <param name="playerY">Player Y position in pixels</param>
+        /// <param name="playerWidth">Player width in pixels</param>
+        /// <param name="playerHeight">Player height in pixels</param>
+        /// <returns>Number of dot areas collected</returns>
+        public int CollectDots(float playerX, float playerY, int playerWidth, int playerHeight)
+        {
+            int dotsCollectedCount = 0;
+            
+            // Calculate which grid cells the player overlaps
+            int startGridX = Math.Max(0, Definition.PixelToGrid((int)playerX));
+            int endGridX = Math.Min(gridWidth - 1, Definition.PixelToGrid((int)(playerX + playerWidth - 1)));
+            int startGridY = Math.Max(0, Definition.PixelToGrid((int)playerY));
+            int endGridY = Math.Min(gridHeight - 1, Definition.PixelToGrid((int)(playerY + playerHeight - 1)));
+            
+            // Track which 2x2 blocks we've already processed
+            bool[,] processed = new bool[gridWidth, gridHeight];
+            
+            // Check for 2x2 dot blocks that the player is touching
+            for (int gridX = startGridX; gridX <= endGridX; gridX++)
+            {
+                for (int gridY = startGridY; gridY <= endGridY; gridY++)
+                {
+                    if (processed[gridX, gridY] || levelData[gridX, gridY] != Definition.DOT)
+                        continue;
+                    
+                    // Check if this is the top-left corner of a 2x2 dot block
+                    if (gridX < gridWidth - 1 && gridY < gridHeight - 1 &&
+                        levelData[gridX, gridY] == Definition.DOT &&
+                        levelData[gridX + 1, gridY] == Definition.DOT &&
+                        levelData[gridX, gridY + 1] == Definition.DOT &&
+                        levelData[gridX + 1, gridY + 1] == Definition.DOT)
+                    {
+                        // Check if this 2x2 block hasn't been collected yet
+                        if (!dotsCollected[gridX, gridY] && !dotsCollected[gridX + 1, gridY] && 
+                            !dotsCollected[gridX, gridY + 1] && !dotsCollected[gridX + 1, gridY + 1])
+                        {
+                            // Collect the entire 2x2 block
+                            dotsCollected[gridX, gridY] = true;
+                            dotsCollected[gridX + 1, gridY] = true;
+                            dotsCollected[gridX, gridY + 1] = true;
+                            dotsCollected[gridX + 1, gridY + 1] = true;
+                            dotsCollectedCount++;
+                        }
+                        
+                        // Mark as processed
+                        processed[gridX, gridY] = true;
+                        processed[gridX + 1, gridY] = true;
+                        processed[gridX, gridY + 1] = true;
+                        processed[gridX + 1, gridY + 1] = true;
+                    }
+                    // Also check if this cell is part of a 2x2 block starting elsewhere
+                    else
+                    {
+                        // Check all possible 2x2 blocks this cell could be part of
+                        for (int dx = -1; dx <= 0; dx++)
+                        {
+                            for (int dy = -1; dy <= 0; dy++)
+                            {
+                                int blockX = gridX + dx;
+                                int blockY = gridY + dy;
+                                
+                                if (blockX >= 0 && blockY >= 0 && blockX < gridWidth - 1 && blockY < gridHeight - 1 &&
+                                    !processed[blockX, blockY] &&
+                                    levelData[blockX, blockY] == Definition.DOT &&
+                                    levelData[blockX + 1, blockY] == Definition.DOT &&
+                                    levelData[blockX, blockY + 1] == Definition.DOT &&
+                                    levelData[blockX + 1, blockY + 1] == Definition.DOT)
+                                {
+                                    // Check if this 2x2 block hasn't been collected yet
+                                    if (!dotsCollected[blockX, blockY] && !dotsCollected[blockX + 1, blockY] && 
+                                        !dotsCollected[blockX, blockY + 1] && !dotsCollected[blockX + 1, blockY + 1])
+                                    {
+                                        // Collect the entire 2x2 block
+                                        dotsCollected[blockX, blockY] = true;
+                                        dotsCollected[blockX + 1, blockY] = true;
+                                        dotsCollected[blockX, blockY + 1] = true;
+                                        dotsCollected[blockX + 1, blockY + 1] = true;
+                                        dotsCollectedCount++;
+                                    }
+                                    
+                                    // Mark as processed
+                                    processed[blockX, blockY] = true;
+                                    processed[blockX + 1, blockY] = true;
+                                    processed[blockX, blockY + 1] = true;
+                                    processed[blockX + 1, blockY + 1] = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            return dotsCollectedCount;
+        }
+
+        private void RenderDots(Graphics g)
+        {
+            if (dotNormalTexture == null || dotWhiteTexture == null) return;
+            
+            // Calculate which dot texture to use based on time (0.2 second intervals)
+            double timeElapsed = (DateTime.Now - lastDotAnimationTime).TotalSeconds;
+            bool useWhiteDot = ((int)(timeElapsed / 0.2)) % 2 == 1;
+            Image dotTexture = useWhiteDot ? dotWhiteTexture : dotNormalTexture;
+            
+            // Track which cells we've already processed to avoid duplicate dots
+            bool[,] processed = new bool[gridWidth, gridHeight];
+            
+            // Look for 2x2 blocks of '*' characters, similar to how SS and FF work
+            for (int x = 0; x < gridWidth - 1; x++)
+            {
+                for (int y = 0; y < gridHeight - 1; y++)
+                {
+                    // Skip if already processed
+                    if (processed[x, y]) continue;
+                    
+                    // Check if we have a 2x2 block of dots
+                    if (levelData[x, y] == Definition.DOT &&
+                        levelData[x + 1, y] == Definition.DOT &&
+                        levelData[x, y + 1] == Definition.DOT &&
+                        levelData[x + 1, y + 1] == Definition.DOT)
+                    {
+                        // Check if this 2x2 dot block hasn't been collected
+                        if (!dotsCollected[x, y] && !dotsCollected[x + 1, y] && 
+                            !dotsCollected[x, y + 1] && !dotsCollected[x + 1, y + 1])
+                        {
+                            // Render one dot in the center of the 2x2 block
+                            float centerX = Definition.GridToPixel(x) + Definition.GRID_SIZE;
+                            float centerY = Definition.GridToPixel(y) + Definition.GRID_SIZE;
+                            int dotX = (int)(centerX - dotTexture.Width / 2);
+                            int dotY = (int)(centerY - dotTexture.Height / 2);
+                            
+                            g.DrawImage(dotTexture, dotX, dotY);
+                        }
+                        
+                        // Mark all 4 cells as processed
+                        processed[x, y] = true;
+                        processed[x + 1, y] = true;
+                        processed[x, y + 1] = true;
+                        processed[x + 1, y + 1] = true;
+                    }
+                }
+            }
+        }
+
         private void RenderFallback(Graphics g)
         {
             // Fallback to the original solid color rendering
@@ -634,6 +813,8 @@ namespace Clawbyrinth
         public void Dispose()
         {
             wallTilemap?.Dispose();
+            dotNormalTexture?.Dispose();
+            dotWhiteTexture?.Dispose();
         }
     }
 }

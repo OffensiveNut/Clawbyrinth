@@ -56,6 +56,10 @@ namespace Clawbyrinth
             // Update game objects with delta time
             player.Update(level, deltaTime);
             
+            // Check for dot collection
+            int dotsCollected = level.CollectDots(player.Position.X, player.Position.Y, 
+                Definition.PLAYER_COLLISION_SIZE, Definition.PLAYER_COLLISION_SIZE);
+            
             // Update camera to follow player
             camera.FollowTarget(player.Position);
             camera.Update(deltaTime);

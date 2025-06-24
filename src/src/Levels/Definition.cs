@@ -70,6 +70,11 @@ namespace Clawbyrinth.Levels
         public const char EMPTY_CHAR = '.';
         
         /// <summary>
+        /// Character representing collectible dots in level blueprints.
+        /// </summary>
+        public const char DOT_CHAR = '*';
+        
+        /// <summary>
         /// Character representing the player start position in level blueprints.
         /// Note: S appears multiple times in a block due to sprite scaling.
         /// </summary>
@@ -121,6 +126,11 @@ namespace Clawbyrinth.Levels
         public const int EMPTY = 0;
         
         /// <summary>
+        /// Internal representation of a collectible dot in the level data array.
+        /// </summary>
+        public const int DOT = 4;
+        
+        /// <summary>
         /// Internal representation of a trap in the level data array.
         /// </summary>
         public const int TRAP = 2;
@@ -161,6 +171,16 @@ namespace Clawbyrinth.Levels
         /// Path to the mechanics assets directory.
         /// </summary>
         public const string MECHANICS_PATH = "Assets/Mechanics/";
+        
+        /// <summary>
+        /// Path to the regular dot texture.
+        /// </summary>
+        public const string DOT_NORMAL_PATH = "Assets/Mechanics/Dot/Dot_game.png";
+        
+        /// <summary>
+        /// Path to the white dot texture.
+        /// </summary>
+        public const string DOT_WHITE_PATH = "Assets/Mechanics/Dot/Dot_game_White.png";
         
         /// <summary>
         /// Path to the level map templates directory.
@@ -242,6 +262,16 @@ namespace Clawbyrinth.Levels
         }
         
         /// <summary>
+        /// Checks if a character represents a walkable space (empty or collectible).
+        /// </summary>
+        /// <param name="c">Character from level blueprint</param>
+        /// <returns>True if the character represents a walkable space</returns>
+        public static bool IsWalkableCharacter(char c)
+        {
+            return IsEmptyCharacter(c) || c == DOT_CHAR;
+        }
+        
+        /// <summary>
         /// Checks if a character represents a trap or hazard.
         /// </summary>
         /// <param name="c">Character from level blueprint</param>
@@ -269,6 +299,7 @@ namespace Clawbyrinth.Levels
                 UPPER_LEFT_CORNER => WALL,      // '7'
                 UPPER_WALL => WALL,             // '8'
                 UPPER_RIGHT_CORNER => WALL,     // '9'
+                DOT_CHAR => DOT,                // '*'
                 SPIKES_CHAR => TRAP,
                 CANNON_CHAR => TRAP,
                 PORTAL_CHAR => PORTAL,
