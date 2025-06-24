@@ -196,6 +196,11 @@ class MapDrawer:
         self.portal_btn.configure(command=lambda: self.set_drawing_mode('portal'))
         ToolTip(self.portal_btn, "Click to place portal (must come in pairs)")
         
+        self.fish_btn = ttk.Button(mode_frame, text="Fish (I)")
+        self.fish_btn.pack(fill=tk.X, padx=5, pady=2)
+        self.fish_btn.configure(command=lambda: self.set_drawing_mode('fish'))
+        ToolTip(self.fish_btn, "Click to place fish with aura")
+        
         self.erase_btn = ttk.Button(mode_frame, text="Erase (E)")
         self.erase_btn.pack(fill=tk.X, padx=5, pady=2)
         self.erase_btn.configure(command=lambda: self.set_drawing_mode('erase'))
@@ -387,12 +392,13 @@ class MapDrawer:
             'spike1': ('cyan', 'Spike 1 (1) - Draw spike lines (!)'),
             'spike2': ('cyan', 'Spike 2 (2) - Draw spike lines (?) with cyan overlay'),
             'portal': ('magenta', 'Portal (P) - Portal placement (must come in pairs)'),
+            'fish': ('cyan', 'Fish (I) - Fish with aura'),
             'erase': ('lightgray', 'Erase (E) - Line erasing'),
             'select': ('lightyellow', 'Select (R) - Rectangle selection')
         }
         
         # Reset all buttons
-        for btn in [self.wall_btn, self.start_btn, self.finish_btn, self.asterisk_btn, self.start_path_btn, self.finish_path_btn, self.spike1_btn, self.spike2_btn, self.portal_btn, self.erase_btn, self.select_btn]:
+        for btn in [self.wall_btn, self.start_btn, self.finish_btn, self.asterisk_btn, self.start_path_btn, self.finish_path_btn, self.spike1_btn, self.spike2_btn, self.portal_btn, self.fish_btn, self.erase_btn, self.select_btn]:
             btn.configure(style='TButton')
         
         # Highlight active button (using background color - limited in ttk)
@@ -734,6 +740,8 @@ class MapDrawer:
         self.root.bind("<KeyPress-2>", lambda e: self.set_drawing_mode('spike2'))
         self.root.bind("<KeyPress-p>", lambda e: self.set_drawing_mode('portal'))
         self.root.bind("<KeyPress-P>", lambda e: self.set_drawing_mode('portal'))
+        self.root.bind("<KeyPress-i>", lambda e: self.set_drawing_mode('fish'))
+        self.root.bind("<KeyPress-I>", lambda e: self.set_drawing_mode('fish'))
         
         # Undo/Redo shortcuts
         self.root.bind("<Control-z>", lambda e: self.undo())

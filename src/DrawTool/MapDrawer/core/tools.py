@@ -186,6 +186,50 @@ class GridCanvas(tk.Canvas):
                 
         return True
     
+    def place_fish_with_aura(self, grid_x, grid_y):
+        """Place a 2x2 fish block with 2-cell aura of quote marks around it"""
+        # Align to even coordinates for 2x2 placement
+        align_x = (grid_x // 2) * 2
+        align_y = (grid_y // 2) * 2
+        
+        # Check bounds for fish + aura (6x6 total area)
+        if align_x + 5 >= self.grid_width or align_y + 5 >= self.grid_height or align_x < 2 or align_y < 2:
+            return False
+        
+        # Place the 2x2 fish block in the center
+        for dy in range(2):
+            for dx in range(2):
+                self.grid[align_y + dy][align_x + dx] = 'i'
+        
+        # Place the aura (2-cell border of quote marks)
+        # Top and bottom borders (6 cells wide)
+        for dx in range(-2, 4):
+            # Top border (2 rows)
+            if align_y - 2 >= 0:
+                self.grid[align_y - 2][align_x + dx] = '"'
+            if align_y - 1 >= 0:
+                self.grid[align_y - 1][align_x + dx] = '"'
+            # Bottom border (2 rows)
+            if align_y + 2 < self.grid_height:
+                self.grid[align_y + 2][align_x + dx] = '"'
+            if align_y + 3 < self.grid_height:
+                self.grid[align_y + 3][align_x + dx] = '"'
+        
+        # Left and right borders (2 cells deep, 6 cells tall)
+        for dy in range(-2, 4):
+            # Left border (2 columns)
+            if align_x - 2 >= 0 and align_y + dy >= 0 and align_y + dy < self.grid_height:
+                self.grid[align_y + dy][align_x - 2] = '"'
+            if align_x - 1 >= 0 and align_y + dy >= 0 and align_y + dy < self.grid_height:
+                self.grid[align_y + dy][align_x - 1] = '"'
+            # Right border (2 columns)  
+            if align_x + 2 < self.grid_width and align_y + dy >= 0 and align_y + dy < self.grid_height:
+                self.grid[align_y + dy][align_x + 2] = '"'
+            if align_x + 3 < self.grid_width and align_y + dy >= 0 and align_y + dy < self.grid_height:
+                self.grid[align_y + dy][align_x + 3] = '"'
+        
+        return True
+    
     def start_asterisk_drawing(self):
         """
         Start manual asterisk path drawing from Start block
@@ -516,7 +560,7 @@ class GridCanvas(tk.Canvas):
         cell_value = self.grid[grid_y][grid_x]
         
         # Only handle 2x2 block types
-        if cell_value not in ['S', 'F', 'P', '*']:
+        if cell_value not in ['S', 'F', 'P', 'i', '*']:
             return False
         
         # Snap to 2x2 grid boundaries (same logic as placement)
@@ -529,7 +573,7 @@ class GridCanvas(tk.Canvas):
         
         # Verify that all 4 cells in the aligned 2x2 block contain the same symbol
         target_symbol = self.grid[align_y][align_x]
-        if target_symbol not in ['S', 'F', 'P', '*']:
+        if target_symbol not in ['S', 'F', 'P', 'i', '*']:
             return False
             
         # Check if it's a valid 2x2 block
@@ -546,6 +590,10 @@ class GridCanvas(tk.Canvas):
                 erase_x, erase_y = align_x + dx, align_y + dy
                 self.grid[erase_y][erase_x] = '.'
         
+        # Special handling for fish - also erase the aura
+        if target_symbol == 'i':
+            self.erase_fish_aura(align_x, align_y)
+        
         # Update surrounding walls and flood fill if Start was removed
         if target_symbol == 'S':
             self.flood_fill_from_start()
@@ -556,6 +604,43 @@ class GridCanvas(tk.Canvas):
                                          align_x + 2, align_y + 2)
         
         return True
+    
+    def erase_fish_aura(self, fish_x, fish_y):
+        """Erase the quote mark aura around a fish block"""
+        # Erase the aura (2-cell border of quote marks)
+        # Top and bottom borders (6 cells wide)
+        for dx in range(-2, 4):
+            # Top border (2 rows)
+            if fish_y - 2 >= 0 and fish_x + dx >= 0 and fish_x + dx < self.grid_width:
+                if self.grid[fish_y - 2][fish_x + dx] == '"':
+                    self.grid[fish_y - 2][fish_x + dx] = '.'
+            if fish_y - 1 >= 0 and fish_x + dx >= 0 and fish_x + dx < self.grid_width:
+                if self.grid[fish_y - 1][fish_x + dx] == '"':
+                    self.grid[fish_y - 1][fish_x + dx] = '.'
+            # Bottom border (2 rows)
+            if fish_y + 2 < self.grid_height and fish_x + dx >= 0 and fish_x + dx < self.grid_width:
+                if self.grid[fish_y + 2][fish_x + dx] == '"':
+                    self.grid[fish_y + 2][fish_x + dx] = '.'
+            if fish_y + 3 < self.grid_height and fish_x + dx >= 0 and fish_x + dx < self.grid_width:
+                if self.grid[fish_y + 3][fish_x + dx] == '"':
+                    self.grid[fish_y + 3][fish_x + dx] = '.'
+        
+        # Left and right borders (2 cells deep, 6 cells tall)
+        for dy in range(-2, 4):
+            # Left border (2 columns)
+            if fish_x - 2 >= 0 and fish_y + dy >= 0 and fish_y + dy < self.grid_height:
+                if self.grid[fish_y + dy][fish_x - 2] == '"':
+                    self.grid[fish_y + dy][fish_x - 2] = '.'
+            if fish_x - 1 >= 0 and fish_y + dy >= 0 and fish_y + dy < self.grid_height:
+                if self.grid[fish_y + dy][fish_x - 1] == '"':
+                    self.grid[fish_y + dy][fish_x - 1] = '.'
+            # Right border (2 columns)
+            if fish_x + 2 < self.grid_width and fish_y + dy >= 0 and fish_y + dy < self.grid_height:
+                if self.grid[fish_y + dy][fish_x + 2] == '"':
+                    self.grid[fish_y + dy][fish_x + 2] = '.'
+            if fish_x + 3 < self.grid_width and fish_y + dy >= 0 and fish_y + dy < self.grid_height:
+                if self.grid[fish_y + dy][fish_x + 3] == '"':
+                    self.grid[fish_y + dy][fish_x + 3] = '.'
     
     def find_2x2_block_origin(self, click_x, click_y, symbol):
         """
@@ -877,6 +962,8 @@ class GridCanvas(tk.Canvas):
                 self.place_2x2_block(grid_x, grid_y, 'F')
             elif self.drawing_mode == 'portal':
                 self.place_2x2_block(grid_x, grid_y, 'P')
+            elif self.drawing_mode == 'fish':
+                self.place_fish_with_aura(grid_x, grid_y)
             elif self.drawing_mode == 'asterisk':
                 # Start manual asterisk path drawing
                 self.start_asterisk_drawing()
@@ -889,13 +976,13 @@ class GridCanvas(tk.Canvas):
                 self.mark_path_direction(grid_x, grid_y, 'finish_path')
                 return  # Don't set is_drawing for path marking
             elif self.drawing_mode == 'spike1':
-                self.spike_grid[grid_y][grid_x] = '!'
-                self.grid[grid_y][grid_x] = '#'
+                self.spike_grid[grid_x][grid_y] = '!'
+                self.grid[grid_x][grid_y] = '#'
                 # Update wall types
                 self.update_wall_types_in_area(grid_x, grid_y, grid_x, grid_y)
             elif self.drawing_mode == 'spike2':
-                self.spike_grid[grid_y][grid_x] = '?'
-                self.grid[grid_y][grid_x] = '#'
+                self.spike_grid[grid_x][grid_y] = '?'
+                self.grid[grid_x][grid_y] = '#'
                 # Update wall types
                 self.update_wall_types_in_area(grid_x, grid_y, grid_x, grid_y)
             elif self.drawing_mode == 'erase':
@@ -1221,6 +1308,14 @@ class GridCanvas(tk.Canvas):
                         self.create_rectangle(x1, y1, x2, y2, fill='magenta', outline='magenta')
                         self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
                                        text='P', fill='white', font=('Arial', 10, 'bold'))
+                    elif cell_value == 'i':
+                        self.create_rectangle(x1, y1, x2, y2, fill='cyan', outline='cyan')
+                        self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
+                                       text='i', fill='black', font=('Arial', 10, 'bold'))
+                    elif cell_value == '"':
+                        self.create_rectangle(x1, y1, x2, y2, fill='lightblue', outline='lightblue')
+                        self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
+                                       text='"', fill='black', font=('Arial', 8, 'bold'))
                     elif cell_value == '*':
                         # Asterisk blocks (purple color) - just purple cells, no arrows
                         self.create_rectangle(x1, y1, x2, y2, fill='purple', outline='purple')
