@@ -889,13 +889,13 @@ class GridCanvas(tk.Canvas):
                 self.mark_path_direction(grid_x, grid_y, 'finish_path')
                 return  # Don't set is_drawing for path marking
             elif self.drawing_mode == 'spike1':
-                self.spike_grid[grid_x][grid_y] = '!'
-                self.grid[grid_x][grid_y] = '#'
+                self.spike_grid[grid_y][grid_x] = '!'
+                self.grid[grid_y][grid_x] = '#'
                 # Update wall types
                 self.update_wall_types_in_area(grid_x, grid_y, grid_x, grid_y)
             elif self.drawing_mode == 'spike2':
-                self.spike_grid[grid_x][grid_y] = '?'
-                self.grid[grid_x][grid_y] = '#'
+                self.spike_grid[grid_y][grid_x] = '?'
+                self.grid[grid_y][grid_x] = '#'
                 # Update wall types
                 self.update_wall_types_in_area(grid_x, grid_y, grid_x, grid_y)
             elif self.drawing_mode == 'erase':
