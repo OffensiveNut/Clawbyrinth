@@ -191,6 +191,11 @@ class MapDrawer:
         self.spike2_btn.configure(command=lambda: self.set_drawing_mode('spike2'))
         ToolTip(self.spike2_btn, "Click and drag to draw spike lines (cyan ?) - shows cyan overlay")
         
+        self.cannon_btn = ttk.Button(mode_frame, text="Cannon (N)")
+        self.cannon_btn.pack(fill=tk.X, padx=5, pady=2)
+        self.cannon_btn.configure(command=lambda: self.set_drawing_mode('cannon'))
+        ToolTip(self.cannon_btn, "Click and drag to draw cannon walls (orange N)")
+        
         self.portal_btn = ttk.Button(mode_frame, text="Portal (P)")
         self.portal_btn.pack(fill=tk.X, padx=5, pady=2)
         self.portal_btn.configure(command=lambda: self.set_drawing_mode('portal'))
@@ -391,6 +396,7 @@ class MapDrawer:
             'finish_path': ('lightcoral', 'Finish Path (T) - Mark exit points'),
             'spike1': ('cyan', 'Spike 1 (1) - Draw spike lines (!)'),
             'spike2': ('cyan', 'Spike 2 (2) - Draw spike lines (?) with cyan overlay'),
+            'cannon': ('orange', 'Cannon (N) - Draw cannon walls (orange N)'),
             'portal': ('magenta', 'Portal (P) - Portal placement (must come in pairs)'),
             'fish': ('cyan', 'Fish (I) - Fish with aura'),
             'erase': ('lightgray', 'Erase (E) - Line erasing'),
@@ -398,7 +404,7 @@ class MapDrawer:
         }
         
         # Reset all buttons
-        for btn in [self.wall_btn, self.start_btn, self.finish_btn, self.asterisk_btn, self.start_path_btn, self.finish_path_btn, self.spike1_btn, self.spike2_btn, self.portal_btn, self.fish_btn, self.erase_btn, self.select_btn]:
+        for btn in [self.wall_btn, self.start_btn, self.finish_btn, self.asterisk_btn, self.start_path_btn, self.finish_path_btn, self.spike1_btn, self.spike2_btn, self.cannon_btn, self.portal_btn, self.fish_btn, self.erase_btn, self.select_btn]:
             btn.configure(style='TButton')
         
         # Highlight active button (using background color - limited in ttk)
@@ -465,7 +471,7 @@ class MapDrawer:
                     # Write grid dimensions (using cropped dimensions)
                     f.write(f"# Grid dimensions: {crop_width}x{crop_height}\n")
                     f.write(f"# Symbols: 1-9 = Oriented Walls, S = Start, F = Finish, * = Asterisk, , = Accessible, . = Empty\n")
-                    f.write(f"# Trap Layer: ! = Spike 1, ? = Spike 2, . = Empty\n")
+                    f.write(f"# Trap Layer: ! = Spike 1, ? = Spike 2, N = Cannon, . = Empty\n")
                     f.write("\n")
                     
                     # Write the cropped map layer
@@ -603,7 +609,7 @@ class MapDrawer:
                         if row_idx < height:
                             for col_idx, char in enumerate(line):
                                 if col_idx < width:
-                                    if char in ['!', '?']:
+                                    if char in ['!', '?', 'N']:
                                         self.canvas.spike_grid[row_idx][col_idx] = char
                                     else:
                                         self.canvas.spike_grid[row_idx][col_idx] = '.'
@@ -744,6 +750,8 @@ class MapDrawer:
         self.root.bind("<KeyPress-R>", lambda e: self.set_drawing_mode('select'))
         self.root.bind("<KeyPress-1>", lambda e: self.set_drawing_mode('spike1'))
         self.root.bind("<KeyPress-2>", lambda e: self.set_drawing_mode('spike2'))
+        self.root.bind("<KeyPress-n>", lambda e: self.set_drawing_mode('cannon'))
+        self.root.bind("<KeyPress-N>", lambda e: self.set_drawing_mode('cannon'))
         self.root.bind("<KeyPress-p>", lambda e: self.set_drawing_mode('portal'))
         self.root.bind("<KeyPress-P>", lambda e: self.set_drawing_mode('portal'))
         self.root.bind("<KeyPress-i>", lambda e: self.set_drawing_mode('fish'))

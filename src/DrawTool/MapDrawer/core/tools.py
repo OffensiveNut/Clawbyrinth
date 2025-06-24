@@ -580,10 +580,19 @@ class GridCanvas(tk.Canvas):
     
     def remove_existing_block(self, symbol):
         """Remove all existing blocks of the given symbol type"""
-        for y in range(self.grid_height):
-            for x in range(self.grid_width):
-                if self.grid[y][x] == symbol:
-                    self.grid[y][x] = '.'
+        if symbol == 'N':
+            # Special handling for cannon blocks - check spike_grid
+            for y in range(self.grid_height):
+                for x in range(self.grid_width):
+                    if self.spike_grid[y][x] == symbol:
+                        self.grid[y][x] = '.'
+                        self.spike_grid[y][x] = '.'
+        else:
+            # Regular blocks - check main grid
+            for y in range(self.grid_height):
+                for x in range(self.grid_width):
+                    if self.grid[y][x] == symbol:
+                        self.grid[y][x] = '.'
     
     def mark_path_direction(self, grid_x, grid_y, path_type):
         """
@@ -648,12 +657,12 @@ class GridCanvas(tk.Canvas):
         Convert marked directions to the opposite directions for entry/exit
         Returns (start_entry_directions, finish_exit_directions)
         """
-        # Convert marked directions to entry/exit directions (opposite)
+        # Convert marked directions to entry/exit directions (corrected mapping)
         direction_opposites = {
-            'top': 'down',
-            'bottom': 'up', 
-            'left': 'right',
-            'right': 'left'
+            'top': 'up',        # top marking -> up direction
+            'bottom': 'down',   # bottom marking -> down direction
+            'left': 'left',     # left marking -> left direction  
+            'right': 'right'    # right marking -> right direction
         }
         
         start_entry = [direction_opposites[d] for d in self.start_path_marks]
@@ -669,9 +678,12 @@ class GridCanvas(tk.Canvas):
         """
         cell_value = self.grid[grid_y][grid_x]
         
-        # Only handle 2x2 block types
-        if cell_value not in ['S', 'F', 'P', 'i', '*']:
+        # Only handle 2x2 block types (including cannon blocks)
+        if cell_value not in ['S', 'F', 'P', 'i', '*'] and self.spike_grid[grid_y][grid_x] != 'N':
             return False
+        
+        # Check if this is a cannon block (2x2 with 'N' in spike_grid)
+        is_cannon_block = self.spike_grid[grid_y][grid_x] == 'N'
         
         # Snap to 2x2 grid boundaries (same logic as placement)
         align_x = (grid_x // 2) * 2
@@ -682,36 +694,57 @@ class GridCanvas(tk.Canvas):
             return False
         
         # Verify that all 4 cells in the aligned 2x2 block contain the same symbol
-        target_symbol = self.grid[align_y][align_x]
-        if target_symbol not in ['S', 'F', 'P', 'i', '*']:
-            return False
-            
-        # Check if it's a valid 2x2 block
-        for dy in range(2):
-            for dx in range(2):
-                check_x, check_y = align_x + dx, align_y + dy
-                if (check_x >= self.grid_width or check_y >= self.grid_height or 
-                    self.grid[check_y][check_x] != target_symbol):
-                    return False
+        if is_cannon_block:
+            # For cannon blocks, check spike_grid for 'N'
+            for dy in range(2):
+                for dx in range(2):
+                    check_x, check_y = align_x + dx, align_y + dy
+                    if (check_x >= self.grid_width or check_y >= self.grid_height or 
+                        self.spike_grid[check_y][check_x] != 'N'):
+                        return False
+        else:
+            # For regular blocks, check main grid
+            target_symbol = self.grid[align_y][align_x]
+            if target_symbol not in ['S', 'F', 'P', 'i', '*']:
+                return False
+                
+            # Check if it's a valid 2x2 block
+            for dy in range(2):
+                for dx in range(2):
+                    check_x, check_y = align_x + dx, align_y + dy
+                    if (check_x >= self.grid_width or check_y >= self.grid_height or 
+                        self.grid[check_y][check_x] != target_symbol):
+                        return False
+        
+        # Store target symbol before erasing
+        target_symbol = 'N' if is_cannon_block else self.grid[align_y][align_x]
         
         # Erase the entire aligned 2x2 block
         for dy in range(2):
             for dx in range(2):
                 erase_x, erase_y = align_x + dx, align_y + dy
                 self.grid[erase_y][erase_x] = '.'
+                if is_cannon_block:
+                    self.spike_grid[erase_y][erase_x] = '.'  # Also erase cannon from spike_grid
         
-        # Special handling for fish - also erase the aura
-        if target_symbol == 'i':
-            self.erase_fish_aura(align_x, align_y)
-        
-        # Update surrounding walls and flood fill if Start was removed
-        if target_symbol == 'S':
-            self.flood_fill_from_start()
-            self.update_wall_types_from_flood()
-        else:
-            # Update surrounding area for wall orientation
+        # Special handling for different block types
+        if is_cannon_block:
+            # For cannon, just update wall types
             self.update_wall_types_in_area(align_x - 1, align_y - 1, 
                                          align_x + 2, align_y + 2)
+        else:
+            # Special handling for fish - also erase the aura
+            if target_symbol == 'i':
+                self.erase_fish_aura(align_x, align_y)
+            
+            # Update surrounding walls and flood fill if Start was removed
+            if target_symbol == 'S':
+                self.flood_fill_from_start()
+                self.update_wall_types_from_flood()
+            else:
+                # Update surrounding area for wall orientation
+                self.update_wall_types_in_area(align_x - 1, align_y - 1, 
+                                             align_x + 2, align_y + 2)
         
         return True
     
@@ -1095,6 +1128,25 @@ class GridCanvas(tk.Canvas):
                 self.grid[grid_x][grid_y] = '#'
                 # Update wall types
                 self.update_wall_types_in_area(grid_x, grid_y, grid_x, grid_y)
+            elif self.drawing_mode == 'cannon':
+                # Place 2x2 cannon block (like portal/fish but on walls)
+                # Ensure we're on even coordinates for 2x2 alignment
+                block_x = (grid_x // 2) * 2
+                block_y = (grid_y // 2) * 2
+                
+                # Check if we can place a 2x2 block here
+                if (block_x + 1 < self.grid_width and block_y + 1 < self.grid_height):
+                    # Remove any existing cannon first
+                    self.remove_existing_block('N')
+                    
+                    # Place 2x2 cannon block on both grids
+                    for dy in range(2):
+                        for dx in range(2):
+                            self.grid[block_y + dy][block_x + dx] = '#'  # Wall
+                            self.spike_grid[block_y + dy][block_x + dx] = 'N'  # Cannon
+                    
+                    # Update wall types in the area
+                    self.update_wall_types_in_area(block_x, block_y, block_x + 1, block_y + 1)
             elif self.drawing_mode == 'erase':
                 # Check if we're erasing a 2x2 block first
                 if not self.erase_2x2_block_if_needed(grid_x, grid_y):
@@ -1392,13 +1444,18 @@ class GridCanvas(tk.Canvas):
                     y2 = y1 + self.cell_size
                     
                     if cell_value == '#' or cell_value in '123456789':
-                        # Check if this wall is also a spike
+                        # Check if this wall is also a spike or cannon
                         spike_value = self.spike_grid[y][x]
                         if spike_value in ['!', '?']:
                             # Render spike with cyan background
                             self.create_rectangle(x1, y1, x2, y2, fill='cyan', outline='cyan')
                             self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
                                            text=spike_value, fill='black', font=('Arial', 10, 'bold'))
+                        elif spike_value == 'N':
+                            # Render cannon with orange background
+                            self.create_rectangle(x1, y1, x2, y2, fill='orange', outline='orange')
+                            self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
+                                           text='N', fill='black', font=('Arial', 10, 'bold'))
                         else:
                             # Regular wall - all wall types get black background
                             self.create_rectangle(x1, y1, x2, y2, fill='black', outline='black')

@@ -1,6 +1,6 @@
 # Grid dimensions: 38x24
 # Symbols: 1-9 = Oriented Walls, S = Start, F = Finish, * = Asterisk, , = Accessible, . = Empty
-# Trap Layer: ! = Spike 1, ? = Spike 2, . = Empty
+# Trap Layer: ! = Spike 1, ? = Spike 2, N = Cannon, . = Empty
 
 ......................................
 .....7889.............................
