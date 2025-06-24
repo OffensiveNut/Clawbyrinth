@@ -53,4 +53,4 @@ direction : up,right,down,right
 start : 2,18
 finish : 20,12
 Possible Start Entry : up
-Possible Finish Exit : left
+Possible Finish Exit : right

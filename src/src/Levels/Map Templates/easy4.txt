@@ -65,4 +65,4 @@ direction : right,up,left,up,right,up,left,up,right,down,left,down
 start : 2,18
 finish : 20,24
 Possible Start Entry : right
-Possible Finish Exit : up
+Possible Finish Exit : down
