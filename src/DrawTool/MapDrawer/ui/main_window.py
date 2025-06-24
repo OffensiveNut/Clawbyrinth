@@ -692,15 +692,16 @@ class MapDrawer:
                         directions_part = start_entry_line.split(':', 1)[1].strip()
                         entry_directions = [d.strip() for d in directions_part.split(',') if d.strip()]
                         
-                        # Convert entry directions back to mark directions (opposite)
-                        direction_opposites = {
-                            'down': 'top',
-                            'up': 'bottom', 
-                            'right': 'left',
-                            'left': 'right'
+                        # Convert entry directions back to mark directions (reverse of start mapping)
+                        # Start entry: saved direction -> marking position
+                        start_direction_reverse = {
+                            'down': 'top',      # saved "down" -> was marked on "top"
+                            'up': 'bottom',     # saved "up" -> was marked on "bottom"  
+                            'right': 'left',    # saved "right" -> was marked on "left"
+                            'left': 'right'     # saved "left" -> was marked on "right"
                         }
                         
-                        self.canvas.start_path_marks = [direction_opposites.get(d, d) for d in entry_directions if d in direction_opposites]
+                        self.canvas.start_path_marks = [start_direction_reverse.get(d, d) for d in entry_directions if d in start_direction_reverse]
                         print(f"DEBUG: Loaded start path marks: {self.canvas.start_path_marks}")  # Debug
                     except Exception as e:
                         print(f"Error parsing start entry directions: {e}")
@@ -710,15 +711,16 @@ class MapDrawer:
                         directions_part = finish_exit_line.split(':', 1)[1].strip()
                         exit_directions = [d.strip() for d in directions_part.split(',') if d.strip()]
                         
-                        # Convert exit directions back to mark directions (opposite)
-                        direction_opposites = {
-                            'down': 'top',
-                            'up': 'bottom', 
-                            'right': 'left',
-                            'left': 'right'
+                        # Convert exit directions back to mark directions (reverse of finish mapping)
+                        # Finish exit: saved direction -> marking position  
+                        finish_direction_reverse = {
+                            'up': 'top',        # saved "up" -> was marked on "top"
+                            'down': 'bottom',   # saved "down" -> was marked on "bottom"
+                            'left': 'left',     # saved "left" -> was marked on "left"
+                            'right': 'right'    # saved "right" -> was marked on "right"
                         }
                         
-                        self.canvas.finish_path_marks = [direction_opposites.get(d, d) for d in exit_directions if d in direction_opposites]
+                        self.canvas.finish_path_marks = [finish_direction_reverse.get(d, d) for d in exit_directions if d in finish_direction_reverse]
                         print(f"DEBUG: Loaded finish path marks: {self.canvas.finish_path_marks}")  # Debug
                     except Exception as e:
                         print(f"Error parsing finish exit directions: {e}")

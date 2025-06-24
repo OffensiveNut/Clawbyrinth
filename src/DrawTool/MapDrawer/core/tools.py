@@ -654,19 +654,27 @@ class GridCanvas(tk.Canvas):
     
     def get_possible_entry_exit_directions(self):
         """
-        Convert marked directions to the opposite directions for entry/exit
+        Convert marked directions to the directions shown by the arrows in GUI
         Returns (start_entry_directions, finish_exit_directions)
         """
-        # Convert marked directions to entry/exit directions (corrected mapping)
-        direction_opposites = {
-            'top': 'up',        # top marking -> up direction
-            'bottom': 'down',   # bottom marking -> down direction
-            'left': 'left',     # left marking -> left direction  
-            'right': 'right'    # right marking -> right direction
+        # For start entry: arrows point TOWARD the start block (flipped)
+        start_direction_mapping = {
+            'top': 'down',      # top marking -> ↓ arrow -> down direction
+            'bottom': 'up',     # bottom marking -> ↑ arrow -> up direction
+            'left': 'right',    # left marking -> → arrow -> right direction
+            'right': 'left'     # right marking -> ← arrow -> left direction
         }
         
-        start_entry = [direction_opposites[d] for d in self.start_path_marks]
-        finish_exit = [direction_opposites[d] for d in self.finish_path_marks]
+        # For finish exit: arrows point AWAY from the finish block (same direction)
+        finish_direction_mapping = {
+            'top': 'up',        # top marking -> ↑ arrow -> up direction
+            'bottom': 'down',   # bottom marking -> ↓ arrow -> down direction
+            'left': 'left',     # left marking -> ← arrow -> left direction
+            'right': 'right'    # right marking -> → arrow -> right direction
+        }
+        
+        start_entry = [start_direction_mapping[d] for d in self.start_path_marks]
+        finish_exit = [finish_direction_mapping[d] for d in self.finish_path_marks]
         
         return start_entry, finish_exit
         
