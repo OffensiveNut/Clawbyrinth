@@ -230,6 +230,83 @@ class GridCanvas(tk.Canvas):
         
         return True
     
+    def find_portal_pairs(self):
+        """Find all portal pairs on the grid. Returns list of portal positions."""
+        portals = []
+        # Find all portal 2x2 blocks
+        for y in range(0, self.grid_height - 1, 2):
+            for x in range(0, self.grid_width - 1, 2):
+                # Check if this is a 2x2 portal block
+                if (self.grid[y][x] == 'P' and self.grid[y][x+1] == 'P' and
+                    self.grid[y+1][x] == 'P' and self.grid[y+1][x+1] == 'P'):
+                    portals.append((x, y))
+        return portals
+    
+    def get_portal_teleport_destination(self, current_portal_pos, direction):
+        """Get teleport destination when hitting a portal. Always exit at the correct side of the destination portal."""
+        portals = self.find_portal_pairs()
+        
+        if len(portals) != 2:
+            return None
+        
+        # Find the other portal
+        other_portal = None
+        for portal in portals:
+            if portal != current_portal_pos:
+                other_portal = portal
+                break
+        
+        if not other_portal:
+            return None
+        
+        other_x, other_y = other_portal
+
+        # Always try the side matching the direction of travel
+        direction_offsets = {
+            'up':    (0, -2),   # appear above portal
+            'down':  (0, 2),    # appear below portal
+            'left':  (-2, 0),   # appear left of portal
+            'right': (2, 0),    # appear right of portal
+        }
+        
+        if direction not in direction_offsets:
+            return None
+        
+        dx, dy = direction_offsets[direction]
+        exit_x = other_x + dx
+        exit_y = other_y + dy
+        
+        # Check bounds
+        if (exit_x < 0 or exit_x + 1 >= self.grid_width or 
+            exit_y < 0 or exit_y + 1 >= self.grid_height):
+            return None
+            
+        # Check if exit area is clear of walls (2x2 block)
+        for dy_check in range(2):
+            for dx_check in range(2):
+                check_x = exit_x + dx_check
+                check_y = exit_y + dy_check
+                check_cell = self.grid[check_y][check_x]
+                if check_cell in ['#', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
+                    return None
+        return (exit_x, exit_y)
+    
+    def check_portal_collision(self, next_x, next_y):
+        """Check if position would collide with a portal."""
+        # Check if any part of the 2x2 asterisk block would overlap with a portal
+        for dy in range(2):
+            for dx in range(2):
+                check_x = next_x + dx
+                check_y = next_y + dy
+                if (check_x >= 0 and check_x < self.grid_width and 
+                    check_y >= 0 and check_y < self.grid_height and
+                    self.grid[check_y][check_x] == 'P'):
+                    # Find the top-left of this portal
+                    portal_x = (check_x // 2) * 2
+                    portal_y = (check_y // 2) * 2
+                    return (portal_x, portal_y)
+        return None
+    
     def start_asterisk_drawing(self):
         """
         Start manual asterisk path drawing from Start block
@@ -316,6 +393,7 @@ class GridCanvas(tk.Canvas):
         dx, dy = direction_vectors[direction]
         
         blocks_drawn = 0
+        teleported = False
         
         # Save state when direction changes (before drawing new blocks)
         if direction_changed:
@@ -334,9 +412,15 @@ class GridCanvas(tk.Canvas):
                 next_y < 0 or next_y + 1 >= self.grid_height):
                 break
             
-            # Check if any part of the 2x2 block would hit a wall
+            # Check if any part of the 2x2 block would hit a wall or portal
             wall_hit = False
             finish_reached = False
+            portal_detected = False
+            portal_position = None
+            
+            # Debug: Show what we're checking
+            if self.map_drawer:
+                self.map_drawer.status_var.set(f"Checking move to ({next_x},{next_y}) in direction {direction}")
             
             for dy_check in range(2):
                 for dx_check in range(2):
@@ -344,14 +428,39 @@ class GridCanvas(tk.Canvas):
                     check_y = next_y + dy_check
                     check_cell = self.grid[check_y][check_x]
                     
-                    # Only walls block movement, not existing asterisks
-                    if check_cell in ['#', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
+                    # Check for portal
+                    if check_cell == 'P':
+                        portal_detected = True
+                        # Find the top-left of this portal
+                        portal_x = (check_x // 2) * 2
+                        portal_y = (check_y // 2) * 2
+                        portal_position = (portal_x, portal_y)
+                    
+                    # Only walls block movement, not existing asterisks or portals
+                    elif check_cell in ['#', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
                         wall_hit = True
                         break
                     elif check_cell == 'F':
                         finish_reached = True
                 
                 if wall_hit:
+                    break
+            
+            # Handle portal teleportation
+            if portal_detected and portal_position:
+                teleport_dest = self.get_portal_teleport_destination(portal_position, direction)
+                if teleport_dest:
+                    if self.map_drawer:
+                        self.map_drawer.status_var.set(f"🌀 TELEPORTED from {portal_position} to {teleport_dest}!")
+                    # Teleport through portal
+                    next_x, next_y = teleport_dest
+                    teleported = True
+                    # Check bounds again after teleport
+                    if (next_x < 0 or next_x + 1 >= self.grid_width or 
+                        next_y < 0 or next_y + 1 >= self.grid_height):
+                        break
+                else:
+                    # Can't teleport, stop here
                     break
             
             if wall_hit:
@@ -422,7 +531,8 @@ class GridCanvas(tk.Canvas):
                 compressed_directions = self.compress_direction_sequence(self.asterisk_direction_sequence)
                 total_compressed = len(compressed_directions)
                 consecutive_info = " (consecutive)" if is_consecutive else ""
-                self.map_drawer.status_var.set(f"Drew {blocks_drawn} blocks {direction_symbols[direction]}{consecutive_info}. Compressed moves: {total_compressed}. Use arrow keys to continue, ESC to finish.")
+                teleport_info = " 🌀 TELEPORTED!" if teleported else ""
+                self.map_drawer.status_var.set(f"Drew {blocks_drawn} blocks {direction_symbols[direction]}{consecutive_info}{teleport_info}. Compressed moves: {total_compressed}. Use arrow keys to continue, ESC to finish.")
             else:
                 self.map_drawer.status_var.set(f"Cannot move {direction} - blocked by wall. Use other arrow keys or ESC to finish.")
     

@@ -485,14 +485,20 @@ class MapDrawer:
                         compressed_directions = self.canvas.compress_direction_sequence(self.canvas.asterisk_direction_sequence)
                         f.write(f"direction : {','.join(compressed_directions)}\n")
                     
-                    # Write Start and Finish coordinates
+                    # Write Start and Finish coordinates (adjusted to cropped map)
                     start_pos = self.canvas.find_block_position('S')
                     finish_pos = self.canvas.find_block_position('F')
                     
                     if start_pos:
-                        f.write(f"start : {start_pos[0]},{start_pos[1]}\n")
+                        # Adjust coordinates relative to cropped map
+                        cropped_start_x = start_pos[0] - crop_min_x
+                        cropped_start_y = start_pos[1] - crop_min_y
+                        f.write(f"start : {cropped_start_x},{cropped_start_y}\n")
                     if finish_pos:
-                        f.write(f"finish : {finish_pos[0]},{finish_pos[1]}\n")
+                        # Adjust coordinates relative to cropped map
+                        cropped_finish_x = finish_pos[0] - crop_min_x
+                        cropped_finish_y = finish_pos[1] - crop_min_y
+                        f.write(f"finish : {cropped_finish_x},{cropped_finish_y}\n")
                     
                     # Write possible entry/exit directions
                     start_entry, finish_exit = self.canvas.get_possible_entry_exit_directions()
