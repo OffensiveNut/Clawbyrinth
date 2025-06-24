@@ -60,6 +60,12 @@ namespace Clawbyrinth
             int dotsCollected = level.CollectDots(player.Position.X, player.Position.Y, 
                 Definition.PLAYER_COLLISION_SIZE, Definition.PLAYER_COLLISION_SIZE);
             
+            // Check for coin collection
+            int coinsCollected = level.CollectCoins(player.Position.X, player.Position.Y, 
+                Definition.PLAYER_COLLISION_SIZE, Definition.PLAYER_COLLISION_SIZE);
+            
+            // TODO: Add coin collection feedback/scoring here
+            
             // Update camera to follow player
             camera.FollowTarget(player.Position);
             camera.Update(deltaTime);

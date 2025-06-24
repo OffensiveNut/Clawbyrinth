@@ -183,6 +183,26 @@ namespace Clawbyrinth.Levels
         public const string DOT_WHITE_PATH = "Assets/Mechanics/Dot/Dot_game_White.png";
         
         /// <summary>
+        /// Path to the regular coin texture.
+        /// </summary>
+        public const string COIN_NORMAL_PATH = "Assets/Mechanics/Coin/Coin.png";
+        
+        /// <summary>
+        /// Path to the white coin texture.
+        /// </summary>
+        public const string COIN_WHITE_PATH = "Assets/Mechanics/Coin/White/Coin_White.png";
+        
+        /// <summary>
+        /// Base map size for coin spawn calculation (20x20).
+        /// </summary>
+        public const int BASE_MAP_SIZE = 20;
+        
+        /// <summary>
+        /// Number of coins to spawn per base map size (2 coins per 20x20 map).
+        /// </summary>
+        public const int COINS_PER_BASE_MAP = 2;
+        
+        /// <summary>
         /// Path to the level map templates directory.
         /// </summary>
         public const string MAP_TEMPLATES_PATH = "src/Levels/Map Templates/";

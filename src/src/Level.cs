@@ -38,6 +38,8 @@ namespace Clawbyrinth
         protected WallType[,] wallTypes = null!; // Store wall types for rendering
         protected char[,] originalCharacters = null!; // Store original characters for oriented walls
         protected bool[,] dotsCollected = null!; // Track which dots have been collected
+        protected bool[,] coinPositions = null!; // Track where coins are placed
+        protected bool[,] coinsCollected = null!; // Track which coins have been collected
         protected int gridWidth;
         protected int gridHeight;
         private int windowWidth;
@@ -45,6 +47,8 @@ namespace Clawbyrinth
         private Image? wallTilemap;
         private Image? dotNormalTexture;
         private Image? dotWhiteTexture;
+        private Image? coinNormalTexture;
+        private Image? coinWhiteTexture;
         private DateTime lastDotAnimationTime;
 
         public Level(int windowWidth, int windowHeight)
@@ -57,6 +61,7 @@ namespace Clawbyrinth
             lastDotAnimationTime = DateTime.Now;
             LoadWallTilemap();
             LoadDotTextures();
+            LoadCoinTextures();
             GenerateLevel();
         }
 
@@ -74,6 +79,7 @@ namespace Clawbyrinth
             lastDotAnimationTime = DateTime.Now;
             LoadWallTilemap();
             LoadDotTextures();
+            LoadCoinTextures();
             GenerateLevelFromBlueprint(levelDefinition);
         }
 
@@ -105,12 +111,29 @@ namespace Clawbyrinth
             }
         }
 
+        private void LoadCoinTextures()
+        {
+            try
+            {
+                coinNormalTexture = Image.FromFile(Definition.COIN_NORMAL_PATH);
+                coinWhiteTexture = Image.FromFile(Definition.COIN_WHITE_PATH);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load coin textures: {ex.Message}");
+                coinNormalTexture = null;
+                coinWhiteTexture = null;
+            }
+        }
+
         protected virtual void GenerateLevel()
         {
             levelData = new int[gridWidth, gridHeight];
             wallTypes = new WallType[gridWidth, gridHeight];
             originalCharacters = new char[gridWidth, gridHeight];
             dotsCollected = new bool[gridWidth, gridHeight];
+            coinPositions = new bool[gridWidth, gridHeight];
+            coinsCollected = new bool[gridWidth, gridHeight];
             
             // Create border walls
             for (int x = 0; x < gridWidth; x++)
@@ -197,6 +220,8 @@ namespace Clawbyrinth
             wallTypes = new WallType[gridWidth, gridHeight];
             originalCharacters = new char[gridWidth, gridHeight];
             dotsCollected = new bool[gridWidth, gridHeight];
+            coinPositions = new bool[gridWidth, gridHeight];
+            coinsCollected = new bool[gridWidth, gridHeight];
             
             // Parse blueprint into level data (1:1 mapping)
             for (int y = 0; y < gridHeight && y < blueprint.Length; y++)
@@ -212,6 +237,9 @@ namespace Clawbyrinth
             
             // Determine wall types after all walls are placed
             DetermineAllWallTypes();
+            
+            // Spawn coins randomly on dot positions
+            SpawnCoins();
         }
 
         protected void DetermineAllWallTypes()
@@ -240,6 +268,61 @@ namespace Clawbyrinth
                         wallTypes[x, y] = WallType.None;
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Spawns coins randomly on dot positions.
+        /// Spawns 2 coins per 20x20 map size, scaled proportionally.
+        /// </summary>
+        private void SpawnCoins()
+        {
+            // Calculate number of coins to spawn based on map size
+            float mapArea = gridWidth * gridHeight;
+            float baseArea = Definition.BASE_MAP_SIZE * Definition.BASE_MAP_SIZE;
+            int coinsToSpawn = Math.Max(1, (int)((mapArea / baseArea) * Definition.COINS_PER_BASE_MAP));
+            
+            // Find all 2x2 dot blocks (potential coin spawn locations)
+            List<Point> dotBlocks = new List<Point>();
+            bool[,] processed = new bool[gridWidth, gridHeight];
+            
+            for (int x = 0; x < gridWidth - 1; x++)
+            {
+                for (int y = 0; y < gridHeight - 1; y++)
+                {
+                    if (!processed[x, y] &&
+                        levelData[x, y] == Definition.DOT &&
+                        levelData[x + 1, y] == Definition.DOT &&
+                        levelData[x, y + 1] == Definition.DOT &&
+                        levelData[x + 1, y + 1] == Definition.DOT)
+                    {
+                        // Found a 2x2 dot block - add top-left corner as spawn location
+                        dotBlocks.Add(new Point(x, y));
+                        
+                        // Mark as processed
+                        processed[x, y] = true;
+                        processed[x + 1, y] = true;
+                        processed[x, y + 1] = true;
+                        processed[x + 1, y + 1] = true;
+                    }
+                }
+            }
+            
+            // Randomly select positions for coins
+            Random random = new Random();
+            int coinsSpawned = 0;
+            
+            while (coinsSpawned < coinsToSpawn && dotBlocks.Count > 0)
+            {
+                int randomIndex = random.Next(dotBlocks.Count);
+                Point spawnLocation = dotBlocks[randomIndex];
+                
+                // Place coin at this 2x2 block
+                coinPositions[spawnLocation.X, spawnLocation.Y] = true;
+                coinsSpawned++;
+                
+                // Remove this location from available spots
+                dotBlocks.RemoveAt(randomIndex);
             }
         }
 
@@ -443,6 +526,9 @@ namespace Clawbyrinth
             
             // Render dots
             RenderDots(g);
+            
+            // Render coins
+            RenderCoins(g);
         }
 
         private WallType GetTileVariation(WallType baseWallType, int tileX, int tileY)
@@ -738,9 +824,9 @@ namespace Clawbyrinth
         {
             if (dotNormalTexture == null || dotWhiteTexture == null) return;
             
-            // Calculate which dot texture to use based on time (0.2 second intervals)
+            // Calculate which dot texture to use based on time (0.4 second intervals, synchronized with coins)
             double timeElapsed = (DateTime.Now - lastDotAnimationTime).TotalSeconds;
-            bool useWhiteDot = ((int)(timeElapsed / 0.2)) % 2 == 1;
+            bool useWhiteDot = ((int)(timeElapsed / 0.4)) % 2 == 1;
             Image dotTexture = useWhiteDot ? dotWhiteTexture : dotNormalTexture;
             
             // Track which cells we've already processed to avoid duplicate dots
@@ -760,9 +846,10 @@ namespace Clawbyrinth
                         levelData[x, y + 1] == Definition.DOT &&
                         levelData[x + 1, y + 1] == Definition.DOT)
                     {
-                        // Check if this 2x2 dot block hasn't been collected
+                        // Check if this 2x2 dot block hasn't been collected AND doesn't have a coin
                         if (!dotsCollected[x, y] && !dotsCollected[x + 1, y] && 
-                            !dotsCollected[x, y + 1] && !dotsCollected[x + 1, y + 1])
+                            !dotsCollected[x, y + 1] && !dotsCollected[x + 1, y + 1] &&
+                            !coinPositions[x, y]) // Don't render dot if there's a coin here
                         {
                             // Render one dot in the center of the 2x2 block
                             float centerX = Definition.GridToPixel(x) + Definition.GRID_SIZE;
@@ -781,6 +868,85 @@ namespace Clawbyrinth
                     }
                 }
             }
+        }
+
+        private void RenderCoins(Graphics g)
+        {
+            if (coinNormalTexture == null || coinWhiteTexture == null) return;
+            
+            // Calculate which coin texture to use based on time (0.4 second intervals, synchronized with dots)
+            double timeElapsed = (DateTime.Now - lastDotAnimationTime).TotalSeconds;
+            bool useWhiteCoin = ((int)(timeElapsed / 0.4)) % 2 == 1;
+            
+            Image coinTexture = useWhiteCoin ? coinWhiteTexture : coinNormalTexture;
+            
+            // Calculate animation frame within the current texture (4 frames in 0.4s = 0.1s per frame)
+            double textureTime = (timeElapsed % 0.4); // Time within current 0.4s interval
+            int frameIndex = (int)(textureTime / 0.1); // 4 frames per 0.4s = 0.1s per frame
+            frameIndex = Math.Min(frameIndex, 3); // Ensure frame index is 0-3
+            
+            // Each frame is 12x12 pixels in a 48x12 sprite sheet
+            Rectangle sourceRect = new Rectangle(frameIndex * 12, 0, 12, 12);
+            
+            // Render coins at their designated positions
+            for (int x = 0; x < gridWidth - 1; x++)
+            {
+                for (int y = 0; y < gridHeight - 1; y++)
+                {
+                    // Check if there's a coin at this 2x2 block and it hasn't been collected
+                    if (coinPositions[x, y] && !coinsCollected[x, y])
+                    {
+                        // Calculate center of the 2x2 block (same positioning as dots)
+                        int blockCenterX = Definition.GridToPixel(x) + Definition.GRID_SIZE;
+                        int blockCenterY = Definition.GridToPixel(y) + Definition.GRID_SIZE;
+                        
+                        // Center the 12x12 coin frame in the 24x24 block
+                        int coinX = blockCenterX - 6; // 12/2 = 6
+                        int coinY = blockCenterY - 6;
+                        
+                        Rectangle destRect = new Rectangle(coinX, coinY, 12, 12);
+                        
+                        // Draw the current animation frame
+                        g.DrawImage(coinTexture, destRect, sourceRect, GraphicsUnit.Pixel);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Checks if the player is overlapping any coins and collects them.
+        /// </summary>
+        /// <param name="playerX">Player X position in pixels</param>
+        /// <param name="playerY">Player Y position in pixels</param>
+        /// <param name="playerWidth">Player width in pixels</param>
+        /// <param name="playerHeight">Player height in pixels</param>
+        /// <returns>Number of coins collected</returns>
+        public int CollectCoins(float playerX, float playerY, int playerWidth, int playerHeight)
+        {
+            int coinsCollectedCount = 0;
+            
+            // Calculate which grid cells the player overlaps
+            int startGridX = Math.Max(0, Definition.PixelToGrid((int)playerX));
+            int endGridX = Math.Min(gridWidth - 1, Definition.PixelToGrid((int)(playerX + playerWidth - 1)));
+            int startGridY = Math.Max(0, Definition.PixelToGrid((int)playerY));
+            int endGridY = Math.Min(gridHeight - 1, Definition.PixelToGrid((int)(playerY + playerHeight - 1)));
+            
+            // Check for coin positions that the player is touching
+            for (int gridX = startGridX; gridX <= endGridX; gridX++)
+            {
+                for (int gridY = startGridY; gridY <= endGridY; gridY++)
+                {
+                    // Check if there's an uncollected coin at this position
+                    if (coinPositions[gridX, gridY] && !coinsCollected[gridX, gridY])
+                    {
+                        // Collect the coin
+                        coinsCollected[gridX, gridY] = true;
+                        coinsCollectedCount++;
+                    }
+                }
+            }
+            
+            return coinsCollectedCount;
         }
 
         private void RenderFallback(Graphics g)
@@ -815,6 +981,8 @@ namespace Clawbyrinth
             wallTilemap?.Dispose();
             dotNormalTexture?.Dispose();
             dotWhiteTexture?.Dispose();
+            coinNormalTexture?.Dispose();
+            coinWhiteTexture?.Dispose();
         }
     }
 }

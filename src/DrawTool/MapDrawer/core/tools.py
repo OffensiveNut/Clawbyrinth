@@ -516,7 +516,7 @@ class GridCanvas(tk.Canvas):
         cell_value = self.grid[grid_y][grid_x]
         
         # Only handle 2x2 block types
-        if cell_value not in ['S', 'F', '*']:
+        if cell_value not in ['S', 'F', 'P', '*']:
             return False
         
         # Snap to 2x2 grid boundaries (same logic as placement)
@@ -529,7 +529,7 @@ class GridCanvas(tk.Canvas):
         
         # Verify that all 4 cells in the aligned 2x2 block contain the same symbol
         target_symbol = self.grid[align_y][align_x]
-        if target_symbol not in ['S', 'F', '*']:
+        if target_symbol not in ['S', 'F', 'P', '*']:
             return False
             
         # Check if it's a valid 2x2 block
@@ -875,6 +875,8 @@ class GridCanvas(tk.Canvas):
                 self.place_2x2_block(grid_x, grid_y, 'S')
             elif self.drawing_mode == 'finish':
                 self.place_2x2_block(grid_x, grid_y, 'F')
+            elif self.drawing_mode == 'portal':
+                self.place_2x2_block(grid_x, grid_y, 'P')
             elif self.drawing_mode == 'asterisk':
                 # Start manual asterisk path drawing
                 self.start_asterisk_drawing()
@@ -1215,6 +1217,10 @@ class GridCanvas(tk.Canvas):
                         self.create_rectangle(x1, y1, x2, y2, fill='red', outline='red')
                         self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
                                        text='F', fill='white', font=('Arial', 10, 'bold'))
+                    elif cell_value == 'P':
+                        self.create_rectangle(x1, y1, x2, y2, fill='magenta', outline='magenta')
+                        self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
+                                       text='P', fill='white', font=('Arial', 10, 'bold'))
                     elif cell_value == '*':
                         # Asterisk blocks (purple color) - just purple cells, no arrows
                         self.create_rectangle(x1, y1, x2, y2, fill='purple', outline='purple')

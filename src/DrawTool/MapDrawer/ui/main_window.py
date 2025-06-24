@@ -191,6 +191,11 @@ class MapDrawer:
         self.spike2_btn.configure(command=lambda: self.set_drawing_mode('spike2'))
         ToolTip(self.spike2_btn, "Click and drag to draw spike lines (cyan ?) - shows cyan overlay")
         
+        self.portal_btn = ttk.Button(mode_frame, text="Portal (P)")
+        self.portal_btn.pack(fill=tk.X, padx=5, pady=2)
+        self.portal_btn.configure(command=lambda: self.set_drawing_mode('portal'))
+        ToolTip(self.portal_btn, "Click to place portal (must come in pairs)")
+        
         self.erase_btn = ttk.Button(mode_frame, text="Erase (E)")
         self.erase_btn.pack(fill=tk.X, padx=5, pady=2)
         self.erase_btn.configure(command=lambda: self.set_drawing_mode('erase'))
@@ -381,12 +386,13 @@ class MapDrawer:
             'finish_path': ('lightcoral', 'Finish Path (T) - Mark exit points'),
             'spike1': ('cyan', 'Spike 1 (1) - Draw spike lines (!)'),
             'spike2': ('cyan', 'Spike 2 (2) - Draw spike lines (?) with cyan overlay'),
+            'portal': ('magenta', 'Portal (P) - Portal placement (must come in pairs)'),
             'erase': ('lightgray', 'Erase (E) - Line erasing'),
             'select': ('lightyellow', 'Select (R) - Rectangle selection')
         }
         
         # Reset all buttons
-        for btn in [self.wall_btn, self.start_btn, self.finish_btn, self.asterisk_btn, self.start_path_btn, self.finish_path_btn, self.spike1_btn, self.spike2_btn, self.erase_btn, self.select_btn]:
+        for btn in [self.wall_btn, self.start_btn, self.finish_btn, self.asterisk_btn, self.start_path_btn, self.finish_path_btn, self.spike1_btn, self.spike2_btn, self.portal_btn, self.erase_btn, self.select_btn]:
             btn.configure(style='TButton')
         
         # Highlight active button (using background color - limited in ttk)
@@ -726,6 +732,8 @@ class MapDrawer:
         self.root.bind("<KeyPress-R>", lambda e: self.set_drawing_mode('select'))
         self.root.bind("<KeyPress-1>", lambda e: self.set_drawing_mode('spike1'))
         self.root.bind("<KeyPress-2>", lambda e: self.set_drawing_mode('spike2'))
+        self.root.bind("<KeyPress-p>", lambda e: self.set_drawing_mode('portal'))
+        self.root.bind("<KeyPress-P>", lambda e: self.set_drawing_mode('portal'))
         
         # Undo/Redo shortcuts
         self.root.bind("<Control-z>", lambda e: self.undo())
