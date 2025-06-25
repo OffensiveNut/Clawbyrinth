@@ -486,7 +486,7 @@ namespace Clawbyrinth
             int checkSize = RENDER_SIZE;
             int margin = 2; // Small margin for better gameplay
             
-            // Check corners and center of the player area
+            // Check corners and center of the player area for wall and trap collision
             Point[] checkPoints = new Point[]
             {
                 new Point((int)playerX + margin, (int)playerY + margin), // Top-left
@@ -605,6 +605,7 @@ namespace Clawbyrinth
             g.DrawImage(spriteSheet, destRect, sourceRect, GraphicsUnit.Pixel);
         }
 
+        
         // Dispose method to clean up resources
         public void Dispose()
         {

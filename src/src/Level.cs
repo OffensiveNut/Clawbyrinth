@@ -86,6 +86,10 @@ namespace Clawbyrinth
         private Image? spike2LeftTexture;
         private Image? spike2UpTexture;
         private Image? spike2AttackTexture;
+        private Image? spike2CornerUpLeftTexture;
+        private Image? spike2CornerUpRightTexture;
+        private Image? spike2CornerDownLeftTexture;
+        private Image? spike2CornerDownRightTexture;
         private DateTime lastDotAnimationTime;
         private DateTime lastPortalTeleportTime = DateTime.MinValue;
         private const double PORTAL_COOLDOWN_SECONDS = 0.5; // Half second cooldown
@@ -203,11 +207,18 @@ namespace Clawbyrinth
                 spike2LeftTexture = Image.FromFile("Assets/Traps/Spikes/M_Spikes_l.png");
                 spike2UpTexture = Image.FromFile("Assets/Traps/Spikes/M_Spikes_u.png");
                 spike2AttackTexture = Image.FromFile("Assets/Traps/Spikes/M_Spikes_attack_sheet.png");
+                
+                // Load Spike 2 corner textures (Corner_M_spikes_*)
+                spike2CornerUpLeftTexture = Image.FromFile("Assets/Traps/Spikes/Corner_M_spikes_u_l.png");
+                spike2CornerUpRightTexture = Image.FromFile("Assets/Traps/Spikes/Corner_M_spikes_u_r.png");
+                spike2CornerDownLeftTexture = Image.FromFile("Assets/Traps/Spikes/Corner_M_spikes_d_l.png");
+                spike2CornerDownRightTexture = Image.FromFile("Assets/Traps/Spikes/Corner_M_spikes_d_r.png");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to load Spike 2 textures: {ex.Message}");
                 spike2DownTexture = spike2RightTexture = spike2LeftTexture = spike2UpTexture = spike2AttackTexture = null;
+                spike2CornerUpLeftTexture = spike2CornerUpRightTexture = spike2CornerDownLeftTexture = spike2CornerDownRightTexture = null;
             }
             
             try
@@ -565,22 +576,23 @@ namespace Clawbyrinth
             int startGridY = Math.Max(0, Definition.PixelToGrid((int)y));
             int endGridY = Math.Min(gridHeight - 1, Definition.PixelToGrid((int)(y + height - 1)));
             
-            // Check each grid cell for walls
+            // Check each grid cell for walls and traps
             for (int gridX = startGridX; gridX <= endGridX; gridX++)
             {
                 for (int gridY = startGridY; gridY <= endGridY; gridY++)
                 {
-                    if (levelData[gridX, gridY] == WALL)
+                    // Check for walls or traps (both are solid obstacles)
+                    if (levelData[gridX, gridY] == WALL || levelData[gridX, gridY] == TRAP)
                     {
-                        // Create precise collision rectangle for this wall cell
-                        Rectangle wallRect = new Rectangle(
+                        // Create precise collision rectangle for this wall/trap cell
+                        Rectangle obstacleRect = new Rectangle(
                             Definition.GridToPixel(gridX),
                             Definition.GridToPixel(gridY),
                             Definition.GRID_SIZE,
                             Definition.GRID_SIZE
                         );
                         
-                        if (collisionRect.IntersectsWith(wallRect))
+                        if (collisionRect.IntersectsWith(obstacleRect))
                         {
                             return true;
                         }
@@ -1273,7 +1285,7 @@ namespace Clawbyrinth
                                     // Determine wall orientation based on surrounding walls
                                     int wallOrientation = DetermineWallOrientationForTrap(x, y);
                                     spike2Traps.Add(new Spike2Trap(new Point(x, y), wallOrientation));
-                                    System.Diagnostics.Debug.WriteLine($"Added Spike2 trap at ({x}, {y}) with orientation {wallOrientation}");
+                                    System.Diagnostics.Debug.WriteLine($"Created Spike 2 trap at ({x}, {y}) with orientation {wallOrientation}");
                                 }
                             }
                             else
@@ -1379,11 +1391,15 @@ namespace Clawbyrinth
                 // Render attack animation if the spike is attacking
                 if (spike2Trap.IsDeadly() && spike2AttackTexture != null)
                 {
-                    Point attackPos = spike2Trap.GetAttackPosition();
+                    List<Point> attackPositions = spike2Trap.GetAttackPositions();
                     int frame = spike2Trap.GetCurrentFrame();
                     if (frame >= 0)
                     {
-                        RenderSpike2Attack(g, attackPos, spike2Trap.AttackDirection, frame);
+                        for (int i = 0; i < attackPositions.Count; i++)
+                        {
+                            int attackDirection = spike2Trap.AttackDirections[i];
+                            RenderSpike2Attack(g, attackPositions[i], attackDirection, frame);
+                        }
                     }
                 }
             }
@@ -1393,11 +1409,15 @@ namespace Clawbyrinth
         {
             return wallOrientation switch
             {
-                2 => spike2DownTexture,   // Down
-                4 => spike2RightTexture,  // Right
-                6 => spike2LeftTexture,   // Left
-                8 => spike2UpTexture,     // Up
-                _ => spike2RightTexture   // Default to right
+                2 => spike2DownTexture,       // Down
+                4 => spike2RightTexture,      // Right
+                6 => spike2LeftTexture,       // Left
+                8 => spike2UpTexture,         // Up
+                10 => spike2CornerUpLeftTexture,     // Corner Up-Left
+                12 => spike2CornerUpRightTexture,    // Corner Up-Right
+                14 => spike2CornerDownLeftTexture,   // Corner Down-Left
+                16 => spike2CornerDownRightTexture,  // Corner Down-Right
+                _ => spike2RightTexture       // Default to right
             };
         }
         
@@ -1446,28 +1466,67 @@ namespace Clawbyrinth
         }
 
         /// <summary>
-        /// Determines the wall orientation for a trap based on surrounding walls.
-        /// Returns the direction the trap should face (2=down, 4=right, 6=left, 8=up).
+        /// Determines the wall orientation for a trap based on surrounding accessible areas.
+        /// Returns the direction the trap should face:
+        /// - 2=down, 4=right, 6=left, 8=up (straight orientations)
+        /// - 10=up-left corner, 12=up-right corner, 14=down-left corner, 16=down-right corner
+        /// The spike should face INTO the open space (where the player can be).
         /// </summary>
         private int DetermineWallOrientationForTrap(int x, int y)
         {
-            // Check adjacent cells for walls to determine orientation
-            bool hasWallAbove = (y > 0 && levelData[x, y - 1] == WALL);
-            bool hasWallBelow = (y < gridHeight - 1 && levelData[x, y + 1] == WALL);
-            bool hasWallLeft = (x > 0 && levelData[x - 1, y] == WALL);
-            bool hasWallRight = (x < gridWidth - 1 && levelData[x + 1, y] == WALL);
+            // Check adjacent cells for accessible areas (asterisk or comma) that the player can approach from
+            // Face towards the nearest accessible area that directly touches the spike
             
-            // Determine orientation based on wall pattern
-            if (hasWallAbove && !hasWallBelow)
-                return 2; // Face down (wall is above)
-            else if (hasWallLeft && !hasWallRight)
-                return 4; // Face right (wall is to the left)  
-            else if (hasWallRight && !hasWallLeft)
-                return 6; // Face left (wall is to the right)
-            else if (hasWallBelow && !hasWallAbove)
-                return 8; // Face up (wall is below)
-            else
-                return 4; // Default to facing right
+            // Check all four adjacent directions for accessible areas
+            bool hasAccessibleAbove = (y > 0 && IsAccessibleArea(x, y - 1));
+            bool hasAccessibleBelow = (y < gridHeight - 1 && IsAccessibleArea(x, y + 1));
+            bool hasAccessibleLeft = (x > 0 && IsAccessibleArea(x - 1, y));
+            bool hasAccessibleRight = (x < gridWidth - 1 && IsAccessibleArea(x + 1, y));
+            
+            // Check for corner cases (two adjacent accessible areas)
+            if (hasAccessibleAbove && hasAccessibleLeft) return 10; // Up-Left corner
+            if (hasAccessibleAbove && hasAccessibleRight) return 12; // Up-Right corner
+            if (hasAccessibleBelow && hasAccessibleLeft) return 14; // Down-Left corner
+            if (hasAccessibleBelow && hasAccessibleRight) return 16; // Down-Right corner
+            
+            // Face towards the first accessible area found (priority: up, down, left, right)
+            if (hasAccessibleAbove) return 8; // Face up towards accessible area above
+            if (hasAccessibleBelow) return 2; // Face down towards accessible area below
+            if (hasAccessibleLeft) return 6; // Face left towards accessible area left
+            if (hasAccessibleRight) return 4; // Face right towards accessible area right
+            
+            // If no direct adjacent accessible areas, check diagonally for guidance
+            bool hasAccessibleUpLeft = (x > 0 && y > 0 && IsAccessibleArea(x - 1, y - 1));
+            bool hasAccessibleUpRight = (x < gridWidth - 1 && y > 0 && IsAccessibleArea(x + 1, y - 1));
+            bool hasAccessibleDownLeft = (x > 0 && y < gridHeight - 1 && IsAccessibleArea(x - 1, y + 1));
+            bool hasAccessibleDownRight = (x < gridWidth - 1 && y < gridHeight - 1 && IsAccessibleArea(x + 1, y + 1));
+            
+            // Check for diagonal corner cases
+            if (hasAccessibleUpLeft && !hasAccessibleAbove && !hasAccessibleLeft) return 10; // Up-Left corner
+            if (hasAccessibleUpRight && !hasAccessibleAbove && !hasAccessibleRight) return 12; // Up-Right corner
+            if (hasAccessibleDownLeft && !hasAccessibleBelow && !hasAccessibleLeft) return 14; // Down-Left corner
+            if (hasAccessibleDownRight && !hasAccessibleBelow && !hasAccessibleRight) return 16; // Down-Right corner
+            
+            // Face towards diagonal accessible areas (prioritize up/down over left/right)
+            if (hasAccessibleUpLeft || hasAccessibleUpRight) return 8; // Face up
+            if (hasAccessibleDownLeft || hasAccessibleDownRight) return 2; // Face down
+            if (hasAccessibleUpLeft || hasAccessibleDownLeft) return 6; // Face left
+            if (hasAccessibleUpRight || hasAccessibleDownRight) return 4; // Face right
+            
+            // Fallback to down if no accessible areas found
+            return 2;
+        }
+        
+        /// <summary>
+        /// Checks if a position contains an accessible area where the player can move.
+        /// </summary>
+        private bool IsAccessibleArea(int x, int y)
+        {
+            if (x < 0 || x >= gridWidth || y < 0 || y >= gridHeight) return false;
+            
+            // Check the original characters array for accessible characters
+            char cell = originalCharacters[x, y];
+            return cell == '*' || cell == ',' || cell == 'S' || cell == 'F'; // Asterisk, comma, start, finish
         }
 
         /// <summary>
@@ -1489,14 +1548,14 @@ namespace Clawbyrinth
                     if (IsPlayerNearTrap(playerX, playerY, spike2Trap))
                     {
                         spike2Trap.Activate();
-                        System.Diagnostics.Debug.WriteLine($"Spike 2 trap activated at ({spike2Trap.GridPosition.X}, {spike2Trap.GridPosition.Y})");
+                        System.Diagnostics.Debug.WriteLine($"Spike 2 trap activated at ({spike2Trap.GridPosition.X}, {spike2Trap.GridPosition.Y}) with orientation {spike2Trap.WallOrientation}");
                     }
                 }
             }
         }
         
         /// <summary>
-        /// Checks if the player is near a Spike 2 trap (in adjacent cells).
+        /// Checks if the player is near a Spike 2 trap (in cells that would be attacked).
         /// </summary>
         private bool IsPlayerNearTrap(float playerX, float playerY, Spike2Trap trap)
         {
@@ -1506,14 +1565,48 @@ namespace Clawbyrinth
             int trapX = trap.GridPosition.X;
             int trapY = trap.GridPosition.Y;
             
-            // Check if player is in an adjacent cell (up, down, left, right)
-            return (Math.Abs(playerGridX - trapX) <= 1 && Math.Abs(playerGridY - trapY) <= 1) &&
-                   !(playerGridX == trapX && playerGridY == trapY); // Don't trigger if player is on the trap itself
+            // Don't trigger if player is on the trap itself
+            if (playerGridX == trapX && playerGridY == trapY)
+                return false;
+            
+            // Check if player is in any of the cells that would be attacked by this spike
+            foreach (int attackDirection in trap.AttackDirections)
+            {
+                int attackGridX = trapX;
+                int attackGridY = trapY;
+                
+                // Calculate the grid position that would be attacked in this direction
+                switch (attackDirection)
+                {
+                    case 2: // Down
+                        attackGridY += 1;
+                        break;
+                    case 4: // Right
+                        attackGridX += 1;
+                        break;
+                    case 6: // Left
+                        attackGridX -= 1;
+                        break;
+                    case 8: // Up
+                        attackGridY -= 1;
+                        break;
+                }
+                
+                // Check if player is in this attack cell
+                if (playerGridX == attackGridX && playerGridY == attackGridY)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Player near trap at ({trapX}, {trapY}), player at ({playerGridX}, {playerGridY}), attack direction {attackDirection}");
+                    return true;
+                }
+            }
+            
+            return false;
         }
         
         /// <summary>
-        /// Checks if the player is colliding with any deadly Spike 2 attacks.
-        /// Returns true if the player should be killed.
+        /// Checks if the player is colliding with any Spike 2 traps.
+        /// Returns true if the player should be killed (when spikes are attacking),
+        /// or if the player is blocked by an idle spike (collision but no death).
         /// </summary>
         public bool CheckSpike2Collision(float playerX, float playerY, int playerWidth, int playerHeight)
         {
@@ -1521,13 +1614,41 @@ namespace Clawbyrinth
             
             foreach (var spike2Trap in spike2Traps)
             {
+                // Check for deadly collision (when spike is attacking)
                 if (spike2Trap.IsDeadly())
                 {
-                    Rectangle attackRect = spike2Trap.GetAttackCollisionRect();
-                    if (playerRect.IntersectsWith(attackRect))
+                    List<Rectangle> attackRects = spike2Trap.GetAttackCollisionRects();
+                    foreach (Rectangle attackRect in attackRects)
                     {
-                        return true; // Player hit by spike attack
+                        if (playerRect.IntersectsWith(attackRect))
+                        {
+                            return true; // Player killed by spike attack
+                        }
                     }
+                }
+            }
+            
+            return false;
+        }
+        
+        /// <summary>
+        /// Checks if the player movement is blocked by any Spike 2 traps (solid collision).
+        /// This should be called during movement to prevent walking through idle spikes.
+        /// </summary>
+        public bool CheckSpike2BlockingCollision(float playerX, float playerY, int playerWidth, int playerHeight)
+        {
+            Rectangle playerRect = new Rectangle((int)playerX, (int)playerY, playerWidth, playerHeight);
+            
+            foreach (var spike2Trap in spike2Traps)
+            {
+                // Spike 2 traps always block movement (act as walls)
+                int spikePixelX = Definition.GridToPixel(spike2Trap.GridPosition.X);
+                int spikePixelY = Definition.GridToPixel(spike2Trap.GridPosition.Y);
+                Rectangle spikeRect = new Rectangle(spikePixelX, spikePixelY, GRID_SIZE, GRID_SIZE);
+                
+                if (playerRect.IntersectsWith(spikeRect))
+                {
+                    return true; // Movement blocked by spike
                 }
             }
             

@@ -132,18 +132,22 @@ namespace Clawbyrinth.Levels
                     continue;
                 }
                 
-                // Skip other comments and empty lines for blueprint
-                if (trimmedLine.StartsWith("#") || string.IsNullOrEmpty(trimmedLine))
-                    continue;
-                
-                // Check for metadata (start, finish, etc.)
+                // Check for metadata (start, finish, etc.) - this ends trap layer
                 if (trimmedLine.StartsWith("start :") || trimmedLine.StartsWith("finish :") || 
                     trimmedLine.StartsWith("Possible"))
                 {
                     inMetadata = true;
-                    // Skip metadata parsing for now, we'll use blueprint parsing instead
+                    inTrapLayer = false; // Metadata marks end of trap layer
                     continue;
                 }
+                
+                // Skip other comments and empty lines
+                if (trimmedLine.StartsWith("#"))
+                    continue;
+                
+                // Skip empty lines only for blueprint, not trap layer
+                if (string.IsNullOrEmpty(trimmedLine) && !inTrapLayer)
+                    continue;
                 
                 // Skip other metadata lines
                 if (inMetadata)
@@ -156,7 +160,9 @@ namespace Clawbyrinth.Levels
                 }
                 else
                 {
-                    blueprintLines.Add(line);
+                    // Only add non-empty lines to blueprint
+                    if (!string.IsNullOrEmpty(trimmedLine))
+                        blueprintLines.Add(line);
                 }
             }
             
