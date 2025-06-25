@@ -596,7 +596,7 @@ class MapDrawer:
                     if row_idx < height:
                         for col_idx, char in enumerate(line):
                             if col_idx < width:
-                                if char in ['#', 'S', 'F', '*', ',', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
+                                if char in ['#', 'S', 'F', '*', ',', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'i', '"']:
                                     self.canvas.grid[row_idx][col_idx] = char
                                     if char == '*':
                                         asterisk_positions.append((col_idx, row_idx))
@@ -724,6 +724,9 @@ class MapDrawer:
                         print(f"DEBUG: Loaded finish path marks: {self.canvas.finish_path_marks}")  # Debug
                     except Exception as e:
                         print(f"Error parsing finish exit directions: {e}")
+                
+                # Regenerate fish auras after loading is complete
+                self.canvas.regenerate_fish_auras()
                 
                 self.canvas.update_canvas()
                 messagebox.showinfo("Success", f"Map loaded from {filename}")

@@ -189,6 +189,34 @@ class GridCanvas(tk.Canvas):
                 
         return True
     
+    def regenerate_fish_auras(self):
+        """Regenerate quote mark auras for all fish blocks in the grid"""
+        # Find all fish blocks (i characters) and regenerate their auras
+        for y in range(self.grid_height):
+            for x in range(self.grid_width):
+                if self.grid[y][x] == 'i':
+                    # Found a fish block, regenerate its aura
+                    self.place_fish_aura(x, y)
+    
+    def place_fish_aura(self, fish_x, fish_y):
+        """Place quote mark aura around a fish block"""
+        # Place quote marks in a 3x3 area around the fish (but not on the fish itself)
+        for dy in range(-1, 2):
+            for dx in range(-1, 2):
+                aura_x = fish_x + dx
+                aura_y = fish_y + dy
+                
+                # Skip the fish position itself
+                if dx == 0 and dy == 0:
+                    continue
+                
+                # Check bounds
+                if (0 <= aura_x < self.grid_width and 
+                    0 <= aura_y < self.grid_height):
+                    # Only place quote marks on empty spaces
+                    if self.grid[aura_y][aura_x] == '.':
+                        self.grid[aura_y][aura_x] = '"'
+
     def place_fish_with_aura(self, grid_x, grid_y):
         """Place a 2x2 fish block with 2-cell aura of quote marks around it"""
         # Align to even coordinates for 2x2 placement
@@ -1013,7 +1041,8 @@ class GridCanvas(tk.Canvas):
                 for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                     nx, ny = x + dx, y + dy
                     if (nx, ny) not in visited and 0 <= nx < self.grid_width and 0 <= ny < self.grid_height:
-                        if not self.is_wall(nx, ny):  # Can reach any non-wall including S and F
+                        # Can reach any non-wall position, but treat quote marks as barriers
+                        if not self.is_wall(nx, ny) and self.grid[ny][nx] != '"':
                             visited.add((nx, ny))
                             queue.append((nx, ny))
     
@@ -1022,6 +1051,9 @@ class GridCanvas(tk.Canvas):
         # Don't overwrite Start, Finish, and Asterisk blocks, but allow them to be treated as accessible
         if self.grid[y][x] in ['S', 'F', '*']:
             return True  # Already accessible, don't change
+        # Quote marks from fish aura should not be marked as accessible
+        if self.grid[y][x] == '"':
+            return False
         # For other cells, check if they can be marked
         return not self.is_wall(x, y) and self.grid[y][x] not in ['S', 'F', '*']
     
@@ -2060,14 +2092,18 @@ class GridCanvas(tk.Canvas):
         if self.grid_height > 0:
             self.grid_width = len(map_lines[0])
         
-        # Initialize grid
+        # Initialize grids
         self.grid = [['.' for _ in range(self.grid_width)] for _ in range(self.grid_height)]
+        self.spike_grid = [['.' for _ in range(self.grid_width)] for _ in range(self.grid_height)]
         
         # Load the map data
         for y, line in enumerate(map_lines):
             for x, char in enumerate(line):
                 if x < self.grid_width and y < self.grid_height:
                     self.grid[y][x] = char
+        
+        # After loading, regenerate fish auras for any fish blocks found
+        self.regenerate_fish_auras()
         
         # Convert legacy walls to smart wall system
         self.convert_legacy_walls()
