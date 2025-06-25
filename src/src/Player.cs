@@ -2,7 +2,6 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Collections.Generic;
-using Clawbyrinth.Levels;
 
 namespace Clawbyrinth
 {
@@ -25,13 +24,11 @@ namespace Clawbyrinth
 
     public class Player
     {
-        // Constants from Definition
-        private const int GRID_SIZE = Definition.GRID_SIZE;
-        private const float MOVE_SPEED = Definition.PLAYER_MOVE_SPEED;
-        private const int SPRITE_SIZE = Definition.PLAYER_SPRITE_SIZE;
-        private const int COLLISION_SIZE = Definition.PLAYER_COLLISION_SIZE;
-        private const int PLAYER_GRID_SIZE = Definition.PLAYER_GRID_SIZE;
-        private const int RENDER_SIZE = Definition.PLAYER_RENDER_SIZE;
+        // Constants
+        private const int GRID_SIZE = 24;
+        private const float MOVE_SPEED = 1000.0f; // pixels per second
+        private const int SPRITE_SIZE = 14; // Actual sprite size
+        private const int COLLISION_SIZE = 6; // Collision detection size matching wall tiles
         
         // Position and movement
         private float animatedX, animatedY;
@@ -75,10 +72,9 @@ namespace Clawbyrinth
         {
             gridX = startX;
             gridY = startY;
-            animatedX = Definition.GridToPixel(gridX);
-            animatedY = Definition.GridToPixel(gridY);
+            animatedX = gridX * GRID_SIZE;
+            animatedY = gridY * GRID_SIZE;
             targetX = animatedX;
-            targetY = animatedY;
             targetY = animatedY;
             
             isMoving = false;
@@ -104,11 +100,11 @@ namespace Clawbyrinth
             
             try
             {
-                // Load sprite sheets using Definition paths
-                spriteSheets[AnimationType.Idle] = Image.FromFile(Definition.PLAYER_SPRITES_PATH + "koceng_idle2.png");
-                spriteSheets[AnimationType.LongJump] = Image.FromFile(Definition.PLAYER_SPRITES_PATH + "koceng_long_jump.png");
-                spriteSheets[AnimationType.Flight] = Image.FromFile(Definition.PLAYER_SPRITES_PATH + "koceng_flight.png");
-                spriteSheets[AnimationType.Arrive] = Image.FromFile(Definition.PLAYER_SPRITES_PATH + "koceng_arrive.png");
+                // Load sprite sheets
+                spriteSheets[AnimationType.Idle] = Image.FromFile("Assets/Player/koceng_idle2.png");
+                spriteSheets[AnimationType.LongJump] = Image.FromFile("Assets/Player/koceng_long_jump.png");
+                spriteSheets[AnimationType.Flight] = Image.FromFile("Assets/Player/koceng_flight.png");
+                spriteSheets[AnimationType.Arrive] = Image.FromFile("Assets/Player/koceng_arrive.png");
                 
                 // Set frame counts
                 framecounts[AnimationType.Idle] = 6;
@@ -247,48 +243,22 @@ namespace Clawbyrinth
                 // Reached target
                 animatedX = targetX;
                 animatedY = targetY;
-                gridX = Definition.PixelToGrid((int)targetX);
-                gridY = Definition.PixelToGrid((int)targetY);
+                gridX = (int)(targetX / GRID_SIZE);
+                gridY = (int)(targetY / GRID_SIZE);
                 
-                // Check for portal teleportation
-                Point newPosition = level.CheckPortalTeleportation(gridX, gridY);
-                
-                if (newPosition.X != gridX || newPosition.Y != gridY)
+                // Check if we can continue moving in the same direction
+                if (CanMoveInDirection(currentDirection, level))
                 {
-                    // Player was teleported through a portal
-                    gridX = newPosition.X;
-                    gridY = newPosition.Y;
-                    animatedX = Definition.GridToPixel(gridX);
-                    animatedY = Definition.GridToPixel(gridY);
-                    targetX = animatedX;
-                    targetY = animatedY;
-                    
-                    // Continue moving in the same direction after teleportation
-                    if (CanMoveInDirection(currentDirection, level))
-                    {
-                        ContinueMoving();
-                    }
-                    else
-                    {
-                        StopMoving();
-                    }
+                    ContinueMoving();
                 }
                 else
                 {
-                    // Normal movement - check if we can continue moving in the same direction
-                    if (CanMoveInDirection(currentDirection, level))
-                    {
-                        ContinueMoving();
-                    }
-                    else
-                    {
-                        // Hit a wall, stop moving
-                        StopMoving();
-                        lastWallDirection = currentDirection;
-                        SetAgainstWallRotation(currentDirection);
-                        currentState = PlayerState.AgainstWall;
-                        PlayAnimation(AnimationType.Idle);
-                    }
+                    // Hit a wall, stop moving
+                    StopMoving();
+                    lastWallDirection = currentDirection;
+                    SetAgainstWallRotation(currentDirection);
+                    currentState = PlayerState.AgainstWall;
+                    PlayAnimation(AnimationType.Idle);
                 }
             }
             else
@@ -298,26 +268,6 @@ namespace Clawbyrinth
                 float moveY = (dy / distance) * moveDistance;
                 animatedX += moveX;
                 animatedY += moveY;
-            }
-        }
-
-        /// <summary>
-        /// Converts a Direction enum to a Point vector for movement calculations.
-        /// </summary>
-        private Point GetMovementDirectionVector(Direction direction)
-        {
-            switch (direction)
-            {
-                case Direction.Up:
-                    return new Point(0, -1);
-                case Direction.Down:
-                    return new Point(0, 1);
-                case Direction.Left:
-                    return new Point(-1, 0);
-                case Direction.Right:
-                    return new Point(1, 0);
-                default:
-                    return new Point(0, 0);
             }
         }
 
@@ -442,8 +392,8 @@ namespace Clawbyrinth
                     break;
             }
             
-            targetX = Definition.GridToPixel(newGridX);
-            targetY = Definition.GridToPixel(newGridY);
+            targetX = newGridX * GRID_SIZE;
+            targetY = newGridY * GRID_SIZE;
         }
 
         private bool CanMoveInDirection(Direction direction, Level level)
@@ -455,56 +405,24 @@ namespace Clawbyrinth
             switch (direction)
             {
                 case Direction.Up:
-                    newY -= Definition.GRID_SIZE;
+                    newY -= GRID_SIZE;
                     break;
                 case Direction.Down:
-                    newY += Definition.GRID_SIZE;
+                    newY += GRID_SIZE;
                     break;
                 case Direction.Left:
-                    newX -= Definition.GRID_SIZE;
+                    newX -= GRID_SIZE;
                     break;
                 case Direction.Right:
-                    newX += Definition.GRID_SIZE;
+                    newX += GRID_SIZE;
                     break;
             }
             
             // Check for wall collision at the new position using pixel-perfect collision
-            // Check multiple points around the player's 2x2 grid area
-            return CheckPlayerAreaCollision(level, newX, newY);
-        }
-        
-        /// <summary>
-        /// Checks collision for a 2x2 player area at the given position.
-        /// </summary>
-        /// <param name="level">Level to check collision against</param>
-        /// <param name="playerX">Player's X position in pixels</param>
-        /// <param name="playerY">Player's Y position in pixels</param>
-        /// <returns>True if the area is free, false if collision detected</returns>
-        private bool CheckPlayerAreaCollision(Level level, float playerX, float playerY)
-        {
-            // Check collision at multiple points around the 2x2 player area
-            int checkSize = RENDER_SIZE;
-            int margin = 2; // Small margin for better gameplay
-            
-            // Check corners and center of the player area
-            Point[] checkPoints = new Point[]
-            {
-                new Point((int)playerX + margin, (int)playerY + margin), // Top-left
-                new Point((int)playerX + checkSize - margin, (int)playerY + margin), // Top-right
-                new Point((int)playerX + margin, (int)playerY + checkSize - margin), // Bottom-left
-                new Point((int)playerX + checkSize - margin, (int)playerY + checkSize - margin), // Bottom-right
-                new Point((int)playerX + checkSize/2, (int)playerY + checkSize/2) // Center
-            };
-            
-            foreach (Point point in checkPoints)
-            {
-                if (level.CheckWallCollision(point.X, point.Y, 1, 1))
-                {
-                    return false; // Collision detected
-                }
-            }
-            
-            return true; // No collision
+            // Center the 6x6 collision box within the 24x24 grid cell
+            float collisionX = newX + (GRID_SIZE - COLLISION_SIZE) / 2;
+            float collisionY = newY + (GRID_SIZE - COLLISION_SIZE) / 2;
+            return !level.CheckWallCollision(collisionX, collisionY, COLLISION_SIZE, COLLISION_SIZE);
         }
 
         private void SetMovementRotation(Direction direction)
@@ -556,9 +474,9 @@ namespace Clawbyrinth
             // Save graphics state
             GraphicsState state = g.Save();
             
-            // Calculate render position (center the sprite within the 2x2 grid area)
-            float renderX = animatedX + RENDER_SIZE / 2;
-            float renderY = animatedY + RENDER_SIZE / 2;
+            // Calculate render position (center the sprite)
+            float renderX = animatedX + GRID_SIZE / 2;
+            float renderY = animatedY + GRID_SIZE / 2;
             
             // Apply transformations
             g.TranslateTransform(renderX, renderY);
@@ -589,8 +507,8 @@ namespace Clawbyrinth
                 frameHeight
             );
             
-            // Calculate destination rectangle (centered and scaled for 2x2 grid)
-            float spriteScale = (float)RENDER_SIZE / SPRITE_SIZE;
+            // Calculate destination rectangle (centered)
+            float spriteScale = (float)GRID_SIZE / SPRITE_SIZE;
             int scaledWidth = (int)(frameWidth * spriteScale);
             int scaledHeight = (int)(frameHeight * spriteScale);
             
