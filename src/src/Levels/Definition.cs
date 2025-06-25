@@ -113,6 +113,13 @@ namespace Clawbyrinth.Levels
         /// Character representing cannon trap in level blueprints.
         /// </summary>
         public const char CANNON_CHAR = 'C';
+        
+        /// <summary>
+        /// Procedural generation trap characters
+        /// </summary>
+        public const char SPIKE_1_CHAR = '!';  // Spike type 1
+        public const char SPIKE_2_CHAR = '?';  // Spike type 2  
+        public const char CANNON_PROC_CHAR = 'N'; // Cannon from procedural generation
 
         // === LEVEL DATA CONSTANTS ===
         /// <summary>
@@ -340,7 +347,7 @@ namespace Clawbyrinth.Levels
         /// <returns>True if the character represents a trap</returns>
         public static bool IsTrapCharacter(char c)
         {
-            return c == SPIKES_CHAR || c == CANNON_CHAR;
+            return c == SPIKES_CHAR || c == CANNON_CHAR || c == SPIKE_1_CHAR || c == SPIKE_2_CHAR || c == CANNON_PROC_CHAR;
         }
         
         /// <summary>
@@ -364,6 +371,9 @@ namespace Clawbyrinth.Levels
                 DOT_CHAR => DOT,                // '*'
                 SPIKES_CHAR => TRAP,
                 CANNON_CHAR => TRAP,
+                SPIKE_1_CHAR => TRAP,           // '!'
+                SPIKE_2_CHAR => TRAP,           // '?'
+                CANNON_PROC_CHAR => TRAP,       // 'N'
                 PORTAL_CHAR => PORTAL,
                 _ => EMPTY // Default to empty for START_CHAR, FINISH_CHAR, EMPTY_CHAR, etc.
             };

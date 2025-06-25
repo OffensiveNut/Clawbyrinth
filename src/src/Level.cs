@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using Clawbyrinth.Levels;
 
@@ -57,6 +58,7 @@ namespace Clawbyrinth
         private const int WALL_COLLISION_SIZE = Definition.WALL_COLLISION_SIZE;
         protected const int WALL = Definition.WALL;
         protected const int EMPTY = Definition.EMPTY;
+        protected const int TRAP = Definition.TRAP;
         
         protected int[,] levelData = null!;
         protected WallType[,] wallTypes = null!; // Store wall types for rendering
@@ -64,7 +66,9 @@ namespace Clawbyrinth
         protected bool[,] dotsCollected = null!; // Track which dots have been collected
         protected bool[,] coinPositions = null!; // Track where coins are placed
         protected bool[,] coinsCollected = null!; // Track which coins have been collected
+        protected char[,] trapTypes = null!; // Store trap types for rendering
         protected List<Portal> portals = new List<Portal>(); // List of all portals in the level
+        protected List<Spike2Trap> spike2Traps = new List<Spike2Trap>(); // List of all Spike 2 traps
         protected int gridWidth;
         protected int gridHeight;
         private int windowWidth;
@@ -75,6 +79,13 @@ namespace Clawbyrinth
         private Image? coinNormalTexture;
         private Image? coinWhiteTexture;
         private Image? portalTexture;
+        private Image? spikeTexture;
+        private Image? cannonTexture;
+        private Image? spike2DownTexture;
+        private Image? spike2RightTexture;
+        private Image? spike2LeftTexture;
+        private Image? spike2UpTexture;
+        private Image? spike2AttackTexture;
         private DateTime lastDotAnimationTime;
         private DateTime lastPortalTeleportTime = DateTime.MinValue;
         private const double PORTAL_COOLDOWN_SECONDS = 0.5; // Half second cooldown
@@ -91,6 +102,7 @@ namespace Clawbyrinth
             LoadDotTextures();
             LoadCoinTextures();
             LoadPortalTexture();
+            LoadTrapTextures();
             GenerateLevel();
         }
 
@@ -110,6 +122,7 @@ namespace Clawbyrinth
             LoadDotTextures();
             LoadCoinTextures();
             LoadPortalTexture();
+            LoadTrapTextures();
             GenerateLevelFromBlueprint(levelDefinition);
         }
 
@@ -169,6 +182,46 @@ namespace Clawbyrinth
             }
         }
 
+        private void LoadTrapTextures()
+        {
+            try
+            {
+                // Load basic spike texture (spike 1)
+                spikeTexture = Image.FromFile("Assets/Traps/Spikes/Spikes_d.png");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load spike texture: {ex.Message}");
+                spikeTexture = null;
+            }
+            
+            try
+            {
+                // Load Spike 2 oriented textures (M_Spikes_*)
+                spike2DownTexture = Image.FromFile("Assets/Traps/Spikes/M_Spikes_d.png");
+                spike2RightTexture = Image.FromFile("Assets/Traps/Spikes/M_Spikes_r.png");
+                spike2LeftTexture = Image.FromFile("Assets/Traps/Spikes/M_Spikes_l.png");
+                spike2UpTexture = Image.FromFile("Assets/Traps/Spikes/M_Spikes_u.png");
+                spike2AttackTexture = Image.FromFile("Assets/Traps/Spikes/M_Spikes_attack_sheet.png");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load Spike 2 textures: {ex.Message}");
+                spike2DownTexture = spike2RightTexture = spike2LeftTexture = spike2UpTexture = spike2AttackTexture = null;
+            }
+            
+            try
+            {
+                // Load cannon texture
+                cannonTexture = Image.FromFile("Assets/Traps/Canon/Cannon_sheet.png");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load cannon texture: {ex.Message}");
+                cannonTexture = null;
+            }
+        }
+
         protected virtual void GenerateLevel()
         {
             levelData = new int[gridWidth, gridHeight];
@@ -177,6 +230,7 @@ namespace Clawbyrinth
             dotsCollected = new bool[gridWidth, gridHeight];
             coinPositions = new bool[gridWidth, gridHeight];
             coinsCollected = new bool[gridWidth, gridHeight];
+            trapTypes = new char[gridWidth, gridHeight];
             
             // Create border walls
             for (int x = 0; x < gridWidth; x++)
@@ -265,6 +319,7 @@ namespace Clawbyrinth
             dotsCollected = new bool[gridWidth, gridHeight];
             coinPositions = new bool[gridWidth, gridHeight];
             coinsCollected = new bool[gridWidth, gridHeight];
+            trapTypes = new char[gridWidth, gridHeight];
             
             // Parse blueprint into level data (1:1 mapping)
             for (int y = 0; y < gridHeight && y < blueprint.Length; y++)
@@ -280,6 +335,9 @@ namespace Clawbyrinth
             
             // Determine wall types after all walls are placed
             DetermineAllWallTypes();
+            
+            // Load trap layer if available
+            LoadTrapLayer(levelDefinition);
             
             // Generate portals from PPPP patterns
             GeneratePortals();
@@ -625,6 +683,9 @@ namespace Clawbyrinth
             
             // Render portals
             RenderPortals(g);
+            
+            // Render traps
+            RenderTraps(g);
         }
 
         private WallType GetTileVariation(WallType baseWallType, int tileX, int tileY)
@@ -1178,6 +1239,299 @@ namespace Clawbyrinth
                 
                 g.DrawImage(portalTexture, destRect, sourceRect, GraphicsUnit.Pixel);
             }
+        }
+
+        /// <summary>
+        /// Loads trap layer data from a GeneratedLevel if available.
+        /// </summary>
+        /// <param name="levelDefinition">Level definition that may contain trap data</param>
+        protected virtual void LoadTrapLayer(ILevelDefinition levelDefinition)
+        {
+            if (levelDefinition is GeneratedLevelDefinition generatedDef)
+            {
+                string[] trapLayer = generatedDef.TrapLayer;
+                if (trapLayer != null && trapLayer.Length > 0)
+                {
+                    // Clear existing spike 2 traps
+                    spike2Traps.Clear();
+                    
+                    // Process trap layer
+                    for (int y = 0; y < Math.Min(gridHeight, trapLayer.Length); y++)
+                    {
+                        string row = trapLayer[y];
+                        for (int x = 0; x < Math.Min(gridWidth, row.Length); x++)
+                        {
+                            char trapChar = row[x];
+                            if (Definition.IsTrapCharacter(trapChar))
+                            {
+                                trapTypes[x, y] = trapChar;
+                                levelData[x, y] = TRAP; // Override level data to mark as trap
+                                
+                                // Create Spike 2 trap instances for '?' characters
+                                if (trapChar == '?')
+                                {
+                                    // Determine wall orientation based on surrounding walls
+                                    int wallOrientation = DetermineWallOrientationForTrap(x, y);
+                                    spike2Traps.Add(new Spike2Trap(new Point(x, y), wallOrientation));
+                                    System.Diagnostics.Debug.WriteLine($"Added Spike2 trap at ({x}, {y}) with orientation {wallOrientation}");
+                                }
+                            }
+                            else
+                            {
+                                trapTypes[x, y] = '.'; // No trap
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private void RenderTraps(Graphics g)
+        {
+            if (trapTypes == null) return;
+            
+            // Render static traps (like spike 1 and cannons)
+            for (int x = 0; x < gridWidth; x++)
+            {
+                for (int y = 0; y < gridHeight; y++)
+                {
+                    char trapType = trapTypes[x, y];
+                    if (trapType != '.' && trapType != '\0')
+                    {
+                        // Convert grid coordinates to pixel coordinates
+                        int pixelX = Definition.GridToPixel(x);
+                        int pixelY = Definition.GridToPixel(y);
+                        
+                        // Handle different trap types
+                        switch (trapType)
+                        {
+                            case '!': // Spike type 1
+                            case '^': // Original spike character
+                                if (spikeTexture != null)
+                                {
+                                    Rectangle destRect = new Rectangle(pixelX, pixelY, GRID_SIZE, GRID_SIZE);
+                                    g.DrawImage(spikeTexture, destRect);
+                                }
+                                else
+                                {
+                                    // Fallback: render a gray square
+                                    using (Brush trapBrush = new SolidBrush(Color.Gray))
+                                    {
+                                        Rectangle trapRect = new Rectangle(pixelX, pixelY, GRID_SIZE, GRID_SIZE);
+                                        g.FillRectangle(trapBrush, trapRect);
+                                    }
+                                }
+                                break;
+                                
+                            case 'N': // Cannon from procedural generation
+                            case 'C': // Original cannon character
+                                if (cannonTexture != null)
+                                {
+                                    Rectangle destRect = new Rectangle(pixelX, pixelY, GRID_SIZE, GRID_SIZE);
+                                    g.DrawImage(cannonTexture, destRect);
+                                }
+                                else
+                                {
+                                    // Fallback: render a dark red square
+                                    using (Brush trapBrush = new SolidBrush(Color.DarkRed))
+                                    {
+                                        Rectangle trapRect = new Rectangle(pixelX, pixelY, GRID_SIZE, GRID_SIZE);
+                                        g.FillRectangle(trapBrush, trapRect);
+                                    }
+                                }
+                                break;
+                                
+                            case '?': // Spike type 2 - handled separately below
+                                break;
+                        }
+                    }
+                }
+            }
+            
+            // Render Spike 2 traps with proper orientation and animation
+            RenderSpike2Traps(g);
+        }
+        
+        private void RenderSpike2Traps(Graphics g)
+        {
+            System.Diagnostics.Debug.WriteLine($"RenderSpike2Traps called with {spike2Traps.Count} traps");
+            foreach (var spike2Trap in spike2Traps)
+            {
+                // Render the base spike (idle state)
+                Image? baseTexture = GetSpike2BaseTexture(spike2Trap.WallOrientation);
+                int pixelX = Definition.GridToPixel(spike2Trap.GridPosition.X);
+                int pixelY = Definition.GridToPixel(spike2Trap.GridPosition.Y);
+                Rectangle destRect = new Rectangle(pixelX, pixelY, GRID_SIZE, GRID_SIZE);
+                
+                if (baseTexture != null)
+                {
+                    g.DrawImage(baseTexture, destRect);
+                }
+                else
+                {
+                    // Fallback: render a blue square to show where spike 2 traps should be
+                    using (Brush fallbackBrush = new SolidBrush(Color.Blue))
+                    {
+                        g.FillRectangle(fallbackBrush, destRect);
+                    }
+                }
+                
+                // Render attack animation if the spike is attacking
+                if (spike2Trap.IsDeadly() && spike2AttackTexture != null)
+                {
+                    Point attackPos = spike2Trap.GetAttackPosition();
+                    int frame = spike2Trap.GetCurrentFrame();
+                    if (frame >= 0)
+                    {
+                        RenderSpike2Attack(g, attackPos, spike2Trap.AttackDirection, frame);
+                    }
+                }
+            }
+        }
+        
+        private Image? GetSpike2BaseTexture(int wallOrientation)
+        {
+            return wallOrientation switch
+            {
+                2 => spike2DownTexture,   // Down
+                4 => spike2RightTexture,  // Right
+                6 => spike2LeftTexture,   // Left
+                8 => spike2UpTexture,     // Up
+                _ => spike2RightTexture   // Default to right
+            };
+        }
+        
+        private void RenderSpike2Attack(Graphics g, Point attackPos, int direction, int frame)
+        {
+            if (spike2AttackTexture == null) return;
+            
+            // Assuming the attack sheet has 3 frames horizontally (left, right, middle)
+            int frameWidth = spike2AttackTexture.Width / 3;
+            int frameHeight = spike2AttackTexture.Height;
+            
+            Rectangle sourceRect = new Rectangle(frame * frameWidth, 0, frameWidth, frameHeight);
+            Rectangle destRect = new Rectangle(attackPos.X, attackPos.Y, GRID_SIZE, GRID_SIZE);
+            
+            // Save the current graphics state for rotation
+            var state = g.Save();
+            
+            try
+            {
+                // Rotate the graphics context based on attack direction
+                // Default orientation is right (6), so we need to rotate for other directions
+                float rotationAngle = direction switch
+                {
+                    2 => 90f,   // Down
+                    4 => 0f,    // Right (default)
+                    6 => 180f,  // Left  
+                    8 => 270f,  // Up
+                    _ => 0f
+                };
+                
+                if (rotationAngle != 0f)
+                {
+                    // Translate to center of destination rectangle
+                    g.TranslateTransform(attackPos.X + GRID_SIZE / 2, attackPos.Y + GRID_SIZE / 2);
+                    g.RotateTransform(rotationAngle);
+                    g.TranslateTransform(-GRID_SIZE / 2, -GRID_SIZE / 2);
+                    destRect = new Rectangle(0, 0, GRID_SIZE, GRID_SIZE);
+                }
+                
+                g.DrawImage(spike2AttackTexture, destRect, sourceRect, GraphicsUnit.Pixel);
+            }
+            finally
+            {
+                g.Restore(state);
+            }
+        }
+
+        /// <summary>
+        /// Determines the wall orientation for a trap based on surrounding walls.
+        /// Returns the direction the trap should face (2=down, 4=right, 6=left, 8=up).
+        /// </summary>
+        private int DetermineWallOrientationForTrap(int x, int y)
+        {
+            // Check adjacent cells for walls to determine orientation
+            bool hasWallAbove = (y > 0 && levelData[x, y - 1] == WALL);
+            bool hasWallBelow = (y < gridHeight - 1 && levelData[x, y + 1] == WALL);
+            bool hasWallLeft = (x > 0 && levelData[x - 1, y] == WALL);
+            bool hasWallRight = (x < gridWidth - 1 && levelData[x + 1, y] == WALL);
+            
+            // Determine orientation based on wall pattern
+            if (hasWallAbove && !hasWallBelow)
+                return 2; // Face down (wall is above)
+            else if (hasWallLeft && !hasWallRight)
+                return 4; // Face right (wall is to the left)  
+            else if (hasWallRight && !hasWallLeft)
+                return 6; // Face left (wall is to the right)
+            else if (hasWallBelow && !hasWallAbove)
+                return 8; // Face up (wall is below)
+            else
+                return 4; // Default to facing right
+        }
+
+        /// <summary>
+        /// Updates all dynamic elements in the level including Spike 2 traps.
+        /// This should be called every frame from the game engine.
+        /// </summary>
+        /// <param name="playerX">Player X position in pixels</param>
+        /// <param name="playerY">Player Y position in pixels</param>
+        public void Update(float playerX, float playerY)
+        {
+            // Update all Spike 2 traps
+            foreach (var spike2Trap in spike2Traps)
+            {
+                spike2Trap.Update();
+                
+                // Check if player is near this trap (adjacent cell)
+                if (spike2Trap.State == Spike2State.Idle)
+                {
+                    if (IsPlayerNearTrap(playerX, playerY, spike2Trap))
+                    {
+                        spike2Trap.Activate();
+                        System.Diagnostics.Debug.WriteLine($"Spike 2 trap activated at ({spike2Trap.GridPosition.X}, {spike2Trap.GridPosition.Y})");
+                    }
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Checks if the player is near a Spike 2 trap (in adjacent cells).
+        /// </summary>
+        private bool IsPlayerNearTrap(float playerX, float playerY, Spike2Trap trap)
+        {
+            int playerGridX = Definition.PixelToGrid((int)playerX);
+            int playerGridY = Definition.PixelToGrid((int)playerY);
+            
+            int trapX = trap.GridPosition.X;
+            int trapY = trap.GridPosition.Y;
+            
+            // Check if player is in an adjacent cell (up, down, left, right)
+            return (Math.Abs(playerGridX - trapX) <= 1 && Math.Abs(playerGridY - trapY) <= 1) &&
+                   !(playerGridX == trapX && playerGridY == trapY); // Don't trigger if player is on the trap itself
+        }
+        
+        /// <summary>
+        /// Checks if the player is colliding with any deadly Spike 2 attacks.
+        /// Returns true if the player should be killed.
+        /// </summary>
+        public bool CheckSpike2Collision(float playerX, float playerY, int playerWidth, int playerHeight)
+        {
+            Rectangle playerRect = new Rectangle((int)playerX, (int)playerY, playerWidth, playerHeight);
+            
+            foreach (var spike2Trap in spike2Traps)
+            {
+                if (spike2Trap.IsDeadly())
+                {
+                    Rectangle attackRect = spike2Trap.GetAttackCollisionRect();
+                    if (playerRect.IntersectsWith(attackRect))
+                    {
+                        return true; // Player hit by spike attack
+                    }
+                }
+            }
+            
+            return false;
         }
     }
 }

@@ -49,4 +49,4 @@ direction : down,right,up,left,down,right,up,right,down,left,up,left,down,left,u
 start : 6,2
 finish : 2,2
 Possible Start Entry : down
-Possible Finish Exit : up
+Possible Finish Exit : left

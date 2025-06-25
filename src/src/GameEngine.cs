@@ -61,6 +61,18 @@ namespace Clawbyrinth
             // Update game objects with delta time
             player.Update(level, deltaTime);
             
+            // Update level (including spike 2 traps)
+            level.Update(player.Position.X, player.Position.Y);
+            
+            // Check for spike 2 collision (player death)
+            if (level.CheckSpike2Collision(player.Position.X, player.Position.Y, 
+                Definition.PLAYER_COLLISION_SIZE, Definition.PLAYER_COLLISION_SIZE))
+            {
+                // Player hit by spike 2 - restart level
+                RestartCurrentLevel();
+                return; // Exit early to avoid other checks
+            }
+            
             // Check for dot collection
             int dotsCollected = level.CollectDots(player.Position.X, player.Position.Y, 
                 Definition.PLAYER_COLLISION_SIZE, Definition.PLAYER_COLLISION_SIZE);

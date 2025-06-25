@@ -14,7 +14,7 @@
 *.userosscache
 *.sln.docstates
 .github
-
+src/src/Levels/Generated
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 

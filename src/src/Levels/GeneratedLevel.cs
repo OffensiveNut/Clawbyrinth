@@ -82,6 +82,7 @@ namespace Clawbyrinth.Levels
     {
         private const string GENERATED_FOLDER = "src/Levels/Generated";
         private string[] _blueprint;
+        private string[] _trapLayer;
         private string _levelName;
         private Point? _startPosition;
         private Point? _finishPosition;
@@ -124,16 +125,16 @@ namespace Clawbyrinth.Levels
             {
                 string trimmedLine = line.Trim();
                 
-                // Skip comments and empty lines for blueprint
-                if (trimmedLine.StartsWith("#") || string.IsNullOrEmpty(trimmedLine))
-                    continue;
-                
                 // Check for trap layer start
                 if (trimmedLine == "# Trap Layer")
                 {
                     inTrapLayer = true;
                     continue;
                 }
+                
+                // Skip other comments and empty lines for blueprint
+                if (trimmedLine.StartsWith("#") || string.IsNullOrEmpty(trimmedLine))
+                    continue;
                 
                 // Check for metadata (start, finish, etc.)
                 if (trimmedLine.StartsWith("start :") || trimmedLine.StartsWith("finish :") || 
@@ -160,6 +161,7 @@ namespace Clawbyrinth.Levels
             }
             
             _blueprint = blueprintLines.ToArray();
+            _trapLayer = trapLayerLines.ToArray();
             _specialPositions = new Dictionary<char, List<Point>>();
             
             // Always use blueprint parsing for start/finish positions to ensure accuracy
@@ -220,6 +222,7 @@ namespace Clawbyrinth.Levels
         }
         
         public override string[] Blueprint => _blueprint;
+        public string[] TrapLayer => _trapLayer;
         public override string LevelName => _levelName;
     }
 }
