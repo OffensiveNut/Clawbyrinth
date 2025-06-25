@@ -85,6 +85,7 @@ class GridCanvas(tk.Canvas):
         
         # Store current grid content
         old_grid = self.grid
+        old_spike_grid = self.spike_grid
         old_width = self.grid_width
         old_height = self.grid_height
         
@@ -92,8 +93,9 @@ class GridCanvas(tk.Canvas):
         self.grid_width = new_width
         self.grid_height = new_height
         
-        # Create new grid with proper size
+        # Create new grids with proper size
         self.grid = [['.' for _ in range(new_width)] for _ in range(new_height)]
+        self.spike_grid = [['.' for _ in range(new_width)] for _ in range(new_height)]
         
         # Copy existing content (preserve top-left, remove from right/bottom if shrinking)
         copy_width = min(old_width, new_width)
@@ -102,6 +104,7 @@ class GridCanvas(tk.Canvas):
         for y in range(copy_height):
             for x in range(copy_width):
                 self.grid[y][x] = old_grid[y][x]
+                self.spike_grid[y][x] = old_spike_grid[y][x]
         
         # Preserve asterisk path state and other states that reference grid positions
         # Filter out asterisk positions that are now outside the grid
@@ -2235,9 +2238,15 @@ class GridCanvas(tk.Canvas):
 
     def draw_spike2_overlays(self):
         """Draw yellow overlays for cells connected to spike2"""
+        # Ensure spike_grid dimensions match main grid
+        if (len(self.spike_grid) != self.grid_height or 
+            (self.spike_grid and len(self.spike_grid[0]) != self.grid_width)):
+            # Resize spike_grid if dimensions don't match
+            self.spike_grid = [['.' for _ in range(self.grid_width)] for _ in range(self.grid_height)]
+        
         for y in range(self.grid_height):
             for x in range(self.grid_width):
-                if self.spike_grid[y][x] == '?':  # Spike2
+                if y < len(self.spike_grid) and x < len(self.spike_grid[y]) and self.spike_grid[y][x] == '?':  # Spike2
                     # Check all 4 directions from spike
                     directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]  # up, down, left, right
                     
