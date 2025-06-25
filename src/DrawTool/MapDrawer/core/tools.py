@@ -1515,17 +1515,23 @@ class GridCanvas(tk.Canvas):
                         self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
                                        text='F', fill='white', font=('Arial', 10, 'bold'))
                     elif cell_value == 'P':
-                        self.create_rectangle(x1, y1, x2, y2, fill='magenta', outline='magenta')
-                        self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
-                                       text='P', fill='white', font=('Arial', 10, 'bold'))
-                    elif cell_value == 'i':
-                        self.create_rectangle(x1, y1, x2, y2, fill='cyan', outline='cyan')
-                        self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
-                                       text='i', fill='black', font=('Arial', 10, 'bold'))
-                    elif cell_value == '"':
-                        self.create_rectangle(x1, y1, x2, y2, fill='lightblue', outline='lightblue')
-                        self.create_text(x1 + self.cell_size//2, y1 + self.cell_size//2, 
-                                       text='"', fill='black', font=('Arial', 8, 'bold'))
+                        # Only render if this is the top-left of a 2x2 portal block
+                        if (x + 1 < self.grid_width and y + 1 < self.grid_height and
+                            self.grid[y][x+1] == 'P' and 
+                            self.grid[y+1][x] == 'P' and 
+                            self.grid[y+1][x+1] == 'P'):
+                            # Render the entire 2x2 portal block
+                            for dy in range(2):
+                                for dx in range(2):
+                                    px = x + dx
+                                    py = y + dy
+                                    px1 = px * self.cell_size
+                                    py1 = py * self.cell_size
+                                    px2 = px1 + self.cell_size
+                                    py2 = py1 + self.cell_size
+                                    self.create_rectangle(px1, py1, px2, py2, fill='magenta', outline='magenta')
+                                    self.create_text(px1 + self.cell_size//2, py1 + self.cell_size//2, 
+                                                   text='P', fill='white', font=('Arial', 10, 'bold'))
                     elif cell_value == '*':
                         # Asterisk blocks (purple color) - just purple cells, no arrows
                         self.create_rectangle(x1, y1, x2, y2, fill='purple', outline='purple')
